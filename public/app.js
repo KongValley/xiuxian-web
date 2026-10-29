@@ -137,7 +137,7 @@ function render() {
 
 const dialog = $('#dialog');
 function showDialog(title, body, actions = '') {
-  $('#dialog-content').innerHTML = `<div class="dialog-header"><h2>${title}</h2><button class="dialog-close" data-ui="close" aria-label="关闭">×</button></div><div class="dialog-body">${body}${actions ? `<div class="dialog-actions">${actions}</div>` : ''}</div>`;
+  $('#dialog-content').innerHTML = `<div class="dialog-header"><h2 id="dialog-title">${title}</h2><button class="dialog-close" data-ui="close" aria-label="关闭">×</button></div><div class="dialog-body">${body}${actions ? `<div class="dialog-actions">${actions}</div>` : ''}</div>`;
   if (!dialog.open) dialog.showModal();
 }
 function showGuide() {
