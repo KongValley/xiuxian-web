@@ -12,6 +12,9 @@ import { renderRoots, rootEffectsText } from './roots-view.js';
 import { canPayRootCost, findElement, ROOT_GRADES, ROOT_LEVEL_CAPS, ROOT_PROMOTIONS, rootCostText, rootLabel, rootPromotionReason, rootReshapeCost } from './roots.js';
 import { affixBonus, findSpiritItem, ownsSpiritItem } from './affixes.js';
 import { affixLinesMarkup, affixMaterialsMarkup, affixPreview, affixWorkshop } from './affixes-view.js';
+import { dungeonAutoAction, stopDungeonAuto } from './dungeons.js';
+import { balanceGuide, dungeonDialog, dungeonPage, exchangeView } from './dungeons-view.js';
+import { cultivationBase, recovery } from './balance.js';
 
 const paths: Record<string,string> = {
   home: '<path d="m3 11 9-8 9 8M5 10v10h14V10M9 20v-7h6v7"/>',
@@ -47,6 +50,8 @@ let state = createGame(), tab = 'home', filter = 'all', shopSection = 'items', g
 let toastTimer: ReturnType<typeof setTimeout> | undefined;
 let breakthroughPlaying=false;
 let affixContext:string|null=null;
+let dungeonRealm=-1,dungeonRounds=5,autoArmed=false;
+const autoOwner=crypto.randomUUID(),AUTO_LEASE='wendao-auto-lease-v1';
 let artifactFilters:ArtifactFilters={realm:'current',effect:'all',status:'all',query:'',page:0};
 let bookPath='current',bookRealm='current',bookStatus='all',bookType='all',bookSearch='',bookPage=0;
 let loadWarning = '';
@@ -114,7 +119,7 @@ function renderHome() {
     ['moon','听泉静养','MEDITATION','枕石听泉，以山间清气温养身心。','灵力 +45 · 气血 +35','耗时 1 日','rest','静养一日','outline','休养生息，方行远路'],
     ['leaf','踏露采药','HERB GATHERING','循着草木清香，寻一缕山野灵韵。','凝露草 +1～3 · 灵石 +5～12','灵力 −8 · 1 日','gather','入山采药','outline','山间草木，亦有灵性']
   ];
-  const rate = cultivationRate(state);
+  const rate = cultivationRate(state)*cultivationBase(state);
   return `${state.ended ? `<div class="panel ending"><div class="dialog-eyebrow">THE END · A NEW BEGINNING</div><h2>一念天开，${endingLabel(state)}</h2><p>你于第 ${state.day} 日渡尽雷劫，终于${endingLabel(state)}。<br>回首来时青山，万千山河，皆是故乡。</p><button class="btn gold" data-ui="logs">重读来时路</button></div>` : ''}
   ${pendingBanner()}
   ${!state.roots.primary?'<div class="path-invitation"><span>凡根亦能问长生，先测一回本命灵根。</span><button class="text-link" data-tab="roots">免费测灵 · 灵根养成 ↗</button></div>':''}
@@ -124,6 +129,7 @@ function renderHome() {
   <div class="practice-grid">${cards.map(([i,title,en,desc,reward,cost,action,label,kind,note]) => {
     if (action === 'cultivate') reward = `修为 +${Math.round(17 * rate)}～${Math.round(23 * rate)}`;
     if (action === 'retreat') reward = `修为 +${Math.round(17 * rate * 3.2)}～${Math.round(23 * rate * 3.2)}`;
+    if(action==='rest'){const r=recovery(a.maxHp,a.maxEnergy);reward=`灵力 +${r.energy} · 气血 +${r.hp}`;}
     if (action === 'gather' && state.realm) reward = `凝露草 +1～3 · 灵石 +${5+state.realm*3}～${12+state.realm*3}`;
     if(action==='gather')reward+=' · 灵魄 +1';
     return `<article class="panel practice-card"><div class="card-top"><span class="action-icon">${icon(i)}</span><div><h3>${title}</h3><small>${en}</small></div></div><p>${desc}</p><div class="card-meta"><span>${reward}</span><span>${cost}</span></div><div class="card-action"><span>${note}</span>${actionButton(action, label + icon('arrow'), '', kind, state.ended&&!['rest','gather'].includes(action))}</div></article>`;
@@ -133,16 +139,12 @@ function renderHome() {
 }
 function intro(title: string,desc: string,eyebrow: string) { return `<div class="view-intro"><div class="dialog-eyebrow">${eyebrow}</div><h2>${title}</h2><p>${desc}</p></div>`; }
 function pendingBanner() {
+  if(state.expedition.run)return '<div class="warning-note forge-banner">山河副本尚未结束。<button class="text-link" data-ui="dungeon-resume">继续副本 ↗</button></div>';
   const encounter=state.pending?'<div class="warning-note forge-banner">'+(state.pending.kind==='combat'?'山中战局未定，妖兽仍在眼前。':'山中机缘未了，静候道友抉择。')+'<button class="text-link" data-ui="resume">继续历练 ↗</button></div>':'';
   return encounter+(state.reforge.pending?'<div class="warning-note forge-banner">词条洗练结果待定，原词条仍保留。<button class="text-link" data-ui="affix-preview">比较词条 ↗</button></div>':'');
 }
 function renderExplore() {
-  return `${pendingBanner()}${intro('山河有灵，万物有缘','走出洞府，踏入山河。或遇故人论道，或逢妖兽拦路，每次出行，皆是一场修行。','EXPLORE THE WORLD')}
-  ${sectionHeading('mountain','四方山河','奇遇与战斗 · 随机触发')}
-  <div class="region-grid">${REGIONS.map(r => {
-    const unlocked = state.realm >= r.realm;
-    return `<article class="panel region-card"><div class="region-art ${r.color}"><span class="region-mark">${r.mark}</span><span class="region-lock">${icon(unlocked ? 'leaf' : 'lock')}${unlocked ? '可前往' : r.risk}</span></div><div class="region-body"><h3>${r.name}</h3><p>${r.subtitle}</p><div class="region-meta"><span>灵力 −${r.energy} · 1 日</span><span>胜利得 ${r.reward} 灵石</span></div>${actionButton('explore', unlocked ? '踏入山河 ' + icon('arrow') : r.risk + ' ' + icon('lock'), r.id, unlocked ? 'primary' : 'outline', !unlocked || state.ended)}</div></article>`;
-  }).join('')}</div><p class="soundless-note">历练提示：气血不足四分之一时无法出行。战败会退回洞府、失去 15% 灵石；先在行囊备好丹药。战斗中服丹也会消耗一回合。</p>`;
+  return (state.pending&&!state.expedition.run?pendingBanner():'')+dungeonPage(state,attributes(state),dungeonRealm<0?state.realm:dungeonRealm,dungeonRounds,autoArmed);
 }
 function renderBooks() {
   const chosenPath=bookPath==='current'?(state.path||'immortal'):bookPath,chosenRealm=bookRealm==='current'?state.realm:Number(bookRealm);
@@ -203,7 +205,7 @@ function renderGear() {
   return `${pendingBanner()}${intro('灵装护身，万宝随心','各境均有一套灵装，仙魔妖各有道纹。集齐同境三件，唤醒属于你这条道的套装之力。','EQUIPMENT & ARTIFACTS')}${affixMaterialsMarkup(state)}${activeSet?`<div class="active-set-note">${activeSet.name} · ${activeSet.pieces}/3 <span>两件效果已激活${activeSet.pieces===3?' · 三件效果已激活':''}</span></div>`:''}<div class="loadout-slots">${[...Object.entries(SLOTS),['artifact','法宝']].map(([slot,name])=>{
     const item=[...EQUIPMENT,...ARTIFACTS].find(i=>i.id===state.equipped[slot]);
     return `<div class="panel loadout-slot"><span>${icon(slot==='artifact'?'lotus':slot==='weapon'?'sword':slot==='armor'?'bag':'leaf')}${name}</span><strong>${item?item.name:'未装备'}</strong><small>${item?'+'+(state.gear[item.id]??state.artifacts[item.id])+('effect' in item?' · '+artifactStageLabel(item,state):''):'从下方灵库挑选'}</small>${item&&'effect' in item?'<button class="text-link" data-ui="artifact-details" data-value="'+item.id+'">查看阶段数值 ↗</button>':''}</div>`;
-  }).join('')}</div><div class="gear-totals"><span>攻击 <b>${a.attack}</b></span><span>防御 <b>${a.defense}</b></span><span>气血上限 <b>${a.maxHp}</b></span><span>灵砂 <b>${state.dust}</b></span></div>${renderSetOverview()}${sectionHeading('sword','随身灵装','属性已含当前路径道纹')}<div class="owned-grid">${EQUIPMENT.filter(i=>Object.hasOwn(state.gear,i.id)).map(i=>ownedCard(i)).join('')||'<p class="empty-note">暂未拥有灵装，可前往坊市购买。</p>'}</div>${renderArtifactLibrary(state,artifactFilters)}<p class="soundless-note">已赠青竹剑、素云袍、青纹铃，请手动装备。战胜妖兽必得灵砂，35% 概率掉落装备；成功探查遗藏后有 20% 概率获得法宝，重复灵物转为 3 灵砂。穿卸装备不会恢复气血或灵力，历练途中不可换装。</p><button class="btn outline" data-tab="shop">前往坊市寻宝 ${icon('arrow')}</button>`;
+  }).join('')}</div><div class="gear-totals"><span>攻击 <b>${a.attack}</b></span><span>防御 <b>${a.defense}</b></span><span>气血上限 <b>${a.maxHp}</b></span><span>灵砂 <b>${state.dust}</b></span></div>${renderSetOverview()}${sectionHeading('sword','随身灵装','属性已含当前路径道纹')}<div class="owned-grid">${EQUIPMENT.filter(i=>Object.hasOwn(state.gear,i.id)).map(i=>ownedCard(i)).join('')||'<p class="empty-note">暂未拥有灵装，可前往坊市购买。</p>'}</div>${renderArtifactLibrary(state,artifactFilters)}<p class="soundless-note">已赠青竹剑、素云袍、青纹铃，请手动装备。副本首领保底灵砂与各类材料，25% 概率掉落本境装备、20% 概率掉落本境法宝；首通保底指定法宝，重复转为灵砂。穿卸装备不会恢复气血或灵力，历练途中不可换装。</p><button class="btn outline" data-tab="shop">前往坊市寻宝 ${icon('arrow')}</button>`;
 }
 function renderPaths() {
   return `${pendingBanner()}${intro('仙魔妖途，道由心生','同一片山河，三种问道之身。每条路都有天赋、本命神通与长生结局；九境法宝均为三途通用。','THREE PATHS · ONE ETERNAL JOURNEY')}<div class="path-policy"><span class="status-dot"></span>${state.path?'当前路径：'+PATHS.find(p=>p.id===state.path)!.name+' · 改修需 100 灵石与 1 日':'尚未定道 · 首次选择免费，保留全部现有进度'}</div><div class="path-cards">${PATHS.map(p=>`<article class="panel path-card ${p.color} ${state.path===p.id?'chosen':''}"><div class="path-card-heading"><span class="path-seal">${p.mark}</span><div><div class="dialog-eyebrow">${p.id.toUpperCase()}</div><h2>${p.motto}</h2><p>${p.desc}</p></div></div><div class="path-detail"><span>天赋</span><p>${p.passive}</p></div><div class="path-detail"><span>神通</span><p><strong>${p.skill}</strong> · ${p.skillDesc}</p></div><div class="path-detail"><span>法宝</span><p>九境各三十种 · 不限路径，自由炼化与淬炼</p></div><div class="path-bottom"><span>终途 · ${p.ending}</span><button class="btn ${state.path===p.id?'secondary':'outline'}" data-ui="choosePath" data-value="${p.id}"${state.path===p.id?' disabled':''}>${state.path===p.id?'此心已定':state.path?'改修此道':'踏入'+p.name} ${state.path===p.id?'✓':icon('arrow')}</button></div></article>`).join('')}</div><p class="soundless-note">改修保留境界、功法与全部藏品，会保留已炼化的通用法宝，并封存异途功法（重数保留）。路径或装备上限提升后，需静养或服丹恢复；改修与换装不治疗伤势。历练途中不可改修。</p>`;
@@ -229,7 +231,7 @@ function showDialog(title: string, body: string, actions = '') {
 function showAffixWorkshop(id:string){const item=findSpiritItem(id);if(!item||!ownsSpiritItem(state,item)){toast('请先拥有此灵物，再进行洗练');return;}affixContext=id;const view=affixWorkshop(state,item);showDialog(item.name+' · 词条洗练',view.body,view.actions);}
 function showAffixPreview(){const pending=state.reforge.pending;if(!pending)return;const item=findSpiritItem(pending.itemId);if(!item)return;const view=affixPreview(state,item);showDialog('词条洗练 · 结果对照',view.body,view.actions);}
 function showGuide() {
-  const steps = [['壹','吐纳入道','在洞府吐纳或闭关提升修为；灵力不足时听泉静养。所有时间都由你的选择推进。'],['贰','修为圆满，尝试破境','修为满后消耗 20 灵力突破，凝神丹能提高成功率。失败保留八成修为，后续成功率逐次增加 10%。'],['叁','行万里路，求一线缘','进入山河历练，选择奇遇或迎战妖兽。战斗中可以普攻、御剑、防守回灵或遁走；服丹会消耗一回合。'],['肆','灵材炼丹，功法立身','采药与历练获得灵石灵材，在坊市购丹、藏经阁按路径与境界选择功法，每境每途十卷，最多兼修十本，支持封存与转修。行囊中三株凝露草可炼一枚聚气丹。'],['伍','八境问道，渡劫登仙','炼气、筑基、结丹、元婴、化神、炼虚、合体、大乘，每境统一分初期、中期、后期、圆满。大乘圆满后渡飞升天劫，踏入真仙，共需 '+TOTAL_BREAKTHROUGHS+' 次成功破境。']];
+  const steps = [['壹','吐纳入道','在洞府吐纳或闭关提升修为；灵力不足时听泉静养。所有时间都由你的选择推进。'],['贰','修为圆满，尝试破境','修为满后消耗 20 灵力突破，凝神丹能提高成功率。失败保留八成修为，后续成功率逐次增加 10%。'],['叁','行万里路，求一线缘','山河历练九境各五本，共四十五本。每轮经过小怪、机缘、精英、营地与首领五关。支持自动战斗与最多二十轮自动刷本，首通保底法宝和真印，山河令可指定兑宝。战斗中可以普攻、御剑、防守回灵或遁走；服丹会消耗一回合。'],['肆','灵材炼丹，功法立身','采药与历练获得灵石灵材，在坊市购丹、藏经阁按路径与境界选择功法，每境每途十卷，最多兼修十本，支持封存与转修。行囊中三株凝露草可炼一枚聚气丹。'],['伍','八境问道，渡劫登仙','炼气、筑基、结丹、元婴、化神、炼虚、合体、大乘，每境统一分初期、中期、后期、圆满。大乘圆满后渡飞升天劫，踏入真仙，共需 '+TOTAL_BREAKTHROUGHS+' 次成功破境。']];
   steps.push(['陆','灵器护身，法宝随行','灵装法宝中可装备武器、法衣、佩饰与一件法宝。胜敌必得灵砂，可能掉装备；遗藏可能出法宝。灵砂与灵石可淬炼三次，法宝在战斗中使用，冷却三回合。'],['柒','仙魔妖途，道心自选','三途问道中首次择道免费。仙修擅回元，魔修擅爆发汲血，妖修擅体魄护盾。本命神通每场一次；改修需 100 灵石与一日，法宝保留，异途功法封存。最终结局随路径变化。']);
   steps.push(['捌','各境灵装，道纹相应','每个境界有武器、法衣、佩饰各一件，同境两件激活属性加成，三件再激活路径效果：仙修承受敌方回合后存活可回元，魔修额外汲血，妖修开战获得护盾。道纹和套装随改修转换；装备图鉴可查看三途效果，坊市可按境界选购。']);
   steps.push(['玖','五行养根，凡根成仙','灵根养成中首次测灵免费自选主灵根，五行均可培养；灵魄来自采药、历练或引灵，洗灵露用五株凝露草炼制。洗炼提高纯度，达到境界、纯度与总级要求可晋品。重塑保留级数、纯度与品质；历练中不可养根。']);
@@ -247,6 +249,11 @@ function showBreakthrough() {
   showDialog(ascension?'渡飞升天劫':'叩问仙门', `<div class="dialog-eyebrow">${worldLabel(state.realm)} · ${state.realm===FINAL_REALM?'仙道初成':`当前阶段 ${state.stage+1} / ${stageCount(state.realm)}`}</div><p>你已行至${realmLabel(state)}。${ascension?'大乘圆满，下一关是飞升天劫。渡过此劫，将踏入真仙。':full?'灵气盈满丹田，只待一念叩关。':'道基仍需温养，待修为圆满，再叩仙门。'}</p><div class="realm-steps">${REALMS.map((r,i)=>`<span class="realm-step ${i < state.realm ? 'done' : i === state.realm ? 'current' : ''}">${r}<small>${worldLabel(i)}</small></span>`).join('')}</div><div class="setting-row"><span>下一步</span><span>${nextStep(state)}</span></div><div class="setting-row"><span>修为</span><span>${state.xp} / ${a.xpNeed}</span></div><div class="setting-row"><span>${ascension?'渡劫':'突破'}成功率</span><span>${a.chance}% ${state.focus ? '· 凝神护持' : ''}</span></div><div class="setting-row"><span>所需灵力</span><span>20 / 当前 ${state.energy}</span></div><div class="warning-note">${ascension?'渡劫':'突破'}失败将保留八成修为。每次失败，下次成功率额外提高 10%；成功后重置。凝神丹仅在真正尝试时消耗效果。</div>`, `${state.items.focus && !state.focus ? actionButton('use','服用凝神丹','focus','outline') : ''}${actionButton('breakthrough',ascension?'引动天劫 · 飞升':'凝神破境','','gold',!full || state.energy < 20 || state.ended)}`);
 }
 function showPending() {
+  if(state.expedition.run){
+    const view=dungeonDialog(state,attributes(state),autoArmed);showDialog(view.title,view.body,view.actions);
+    if(state.expedition.auto.battle||state.expedition.auto.repeat)$('.dialog-close').insertAdjacentHTML('beforebegin',`<div class="dungeon-header-actions"><button class="btn outline" data-ui="${autoArmed?'dungeon-auto-pause':'dungeon-auto-resume'}">${autoArmed?'暂停':'继续'}</button><button class="btn outline" data-action="dungeonAutoStop">停止</button></div>`);
+    return;
+  }
   const e = state.pending; if (!e) return;
   const r = REGIONS.find(r=>r.id===e.region)!;
   if (e.kind === 'event') {
@@ -285,9 +292,13 @@ document.addEventListener('click', event => {
     const candidateItem=state.reforge.pending?.itemId;
     const forgeOpen=dialog.open&&affixContext!==null;
     const before=action==='breakthrough'?structuredClone(state):null;
+    const isAutoSetting=action.startsWith('dungeonAuto');
+    if(!isAutoSetting&&autoArmed){autoArmed=false;stopDungeonAuto(state);releaseAutoLease();}
     const result = act(state,action,button.dataset.value);
+    if(result.ok&&['dungeonAutoStart','dungeonAutoBattle','dungeonAutoStop'].includes(action)){autoArmed=(state.expedition.auto.battle||state.expedition.auto.repeat)&&claimAutoLease();if(!autoArmed)releaseAutoLease();}
     if (!result.ok) { toast(result.message); return; }
     save(); render();
+    if(action==='dungeonExchange'){showDialog('山河令 · 指定兑宝',exchangeView(state,dungeonRealm<0?state.realm:dungeonRealm));toast(result.message);return;}
     if(before){
       breakthroughPlaying=true;
       if(dialog.open)dialog.close();
@@ -299,12 +310,18 @@ document.addEventListener('click', event => {
     if(action==='reforgeLock'){showAffixWorkshop((button.dataset.value||'').split('|')[0]);return;}
     if((action==='reforgeAccept'||action==='reforgeDiscard')&&candidateItem){showAffixWorkshop(candidateItem);return;}
     if(action==='buyReforgeStone'&&forgeOpen){showAffixWorkshop(affixContext!);return;}
-    if (state.pending) showPending();
+    if (state.pending||state.expedition.run) showPending();
     else if (dialog.open && action === 'use' && button.dataset.value === 'focus') showBreakthrough();
     else if (dialog.open) dialog.close();
     return;
   }
   switch (button.dataset.ui) {
+    case 'dungeon-resume': showPending();break;
+    case 'dungeon-balance': showDialog('数值与挑战指南',balanceGuide(state,attributes(state)));break;
+    case 'dungeon-exchange': showDialog('山河令 · 指定兑宝',exchangeView(state,dungeonRealm<0?state.realm:dungeonRealm));break;
+    case 'dungeon-auto-pause': autoArmed=false;releaseAutoLease();render();showPending();break;
+    case 'dungeon-auto-resume': autoArmed=claimAutoLease();render();if(state.expedition.run)showPending();toast(autoArmed?'自动行动已恢复':'另一页面正在自动行动，请先在该页面停止');break;
+    case 'dungeon-leave-confirm': showDialog('撤离当前副本','<p>结束本轮进度，保留途中已经获得的材料；未击败首领无法领取通关奖励。自动行动会同时停止。</p>',actionButton('dungeonLeave','确认撤离','','danger'));break;
     case 'affix-workshop': showAffixWorkshop(button.dataset.value||'');break;
     case 'affix-preview': showAffixPreview();break;
     case 'root-awaken': {
@@ -361,7 +378,7 @@ document.addEventListener('click', event => {
       showDialog('为自己取个道号',`<form id="name-form"><label class="field-label" for="name-input">山河路远，以何名行走世间？</label><input id="name-input" class="name-input" value="${escape(state.name)}" maxlength="12" required autocomplete="off"><div class="dialog-actions"><button type="submit" class="btn primary">落笔留名</button></div></form>`);
       $<HTMLInputElement>('#name-input').select(); break;
     case 'reset-confirm': showDialog('重新启程', '<p>此举将清空当前修为、行囊与仙途记录，从炼气初期重新开始。可先导出存档，保留这段来路。</p>', '<button class="btn outline" data-ui="export">先导出存档</button><button class="btn danger" data-ui="reset">确认重新开始</button>'); break;
-    case 'reset': state = createGame(state.name); save(); dialog.close(); setTab('home'); toast('青山仍在，愿道友再启仙途'); break;
+    case 'reset': autoArmed=false;releaseAutoLease();state = createGame(state.name); save(); dialog.close(); setTab('home'); toast('青山仍在，愿道友再启仙途'); break;
   }
 });
 document.addEventListener('submit', event => {
@@ -375,6 +392,8 @@ document.addEventListener('submit', event => {
 });
 document.addEventListener('change',event=>{
   if(!(event.target instanceof HTMLSelectElement))return;
+  if(event.target.matches('[data-dungeon-realm]')){dungeonRealm=Number(event.target.value);render();return;}
+  if(event.target.matches('[data-dungeon-rounds]')){dungeonRounds=Number(event.target.value);render();return;}
   if(event.target.dataset.artifactFilter){const key=event.target.dataset.artifactFilter;if(['realm','effect','status'].includes(key)){artifactFilters[key as 'realm'|'effect'|'status']=event.target.value;artifactFilters.page=0;render();$(`[data-artifact-filter="${key}"]`).focus({preventScroll:true});}return;}
   if(event.target.dataset.bookFilter){const value=event.target.value;switch(event.target.dataset.bookFilter){case 'path':bookPath=value;break;case 'realm':bookRealm=value;break;case 'status':bookStatus=value;break;case 'type':bookType=value;break;}bookPage=0;const key=event.target.dataset.bookFilter;render();$(`[data-book-filter="${key}"]`).focus({preventScroll:true});return;}
   if(!event.target.matches('[data-gear-realm]'))return;
@@ -387,7 +406,7 @@ $<HTMLInputElement>('#import-file').addEventListener('change', async () => {
     if (file.size > 300000) throw new Error('存档文件过大');
     const imported = validateSave(JSON.parse(await file.text()));
     showDialog('续写旧卷', `<p>即将导入道友「${escape(imported.name)}」的仙途：<br>${realmLabel(imported)} · 第 ${imported.day} 日。<br>确认后将覆盖当前进度。</p>`, '<button class="btn outline" data-ui="close">暂不导入</button><button class="btn primary" id="confirm-import">确认导入</button>');
-    $('#confirm-import').onclick = () => { state = imported; save(); dialog.close(); setTab('home'); toast('旧卷重开，仙途已续'); if (state.pending) showPending(); else if(state.reforge.pending)showAffixPreview(); };
+    $('#confirm-import').onclick = () => { autoArmed=false;releaseAutoLease();state = imported; save(); dialog.close(); setTab('home'); toast('旧卷重开，仙途已续'); if (state.pending||state.expedition.run) showPending(); else if(state.reforge.pending)showAffixPreview(); };
   } catch (error) { toast(`无法导入：${error instanceof SyntaxError ? '文件不是有效存档' : error instanceof Error ? error.message : '未知存档错误'}`); }
 });
 window.addEventListener('hashchange',()=>{ const hash = location.hash.slice(1); if (navs.some(n=>n[0]===hash)) { tab=hash; render(); } });
@@ -395,5 +414,31 @@ dialog.addEventListener('click', event => { if (event.target === dialog) { const
 if (navs.some(n=>n[0]===location.hash.slice(1))) tab = location.hash.slice(1);
 render();
 if (loadWarning) toast(loadWarning);
-if (state.pending) showPending();
+if(state.expedition.auto.battle||state.expedition.auto.repeat)toast('自动行动已暂停，可在山河历练中手动恢复');
+if (state.pending||state.expedition.run) showPending();
 else if(state.reforge.pending)showAffixPreview();
+
+function claimAutoLease():boolean {
+  try{const raw=localStorage.getItem(AUTO_LEASE),lease=raw?JSON.parse(raw):null;if(lease&&lease.owner!==autoOwner&&lease.until>Date.now())return false;localStorage.setItem(AUTO_LEASE,JSON.stringify({owner:autoOwner,until:Date.now()+5000}));return true;}catch{return false;}
+}
+function releaseAutoLease(){try{const raw=localStorage.getItem(AUTO_LEASE);if(raw&&JSON.parse(raw).owner===autoOwner)localStorage.removeItem(AUTO_LEASE);}catch{/* Storage is optional. */}}
+function autoStep(){
+  try{
+    if(autoArmed&&!document.hidden&&!breakthroughPlaying&&(!dialog.open||!!document.querySelector('.dungeon-dialog'))){
+      if(!claimAutoLease()){autoArmed=false;render();if(dialog.open&&document.querySelector('.dungeon-dialog'))showPending();toast('自动行动已暂停：另一页面正在操作');return;}
+      const next=dungeonAutoAction(state,attributes);
+      if(!next){autoArmed=false;releaseAutoLease();render();return;}
+      const hadDialog=dialog.open,result=act(state,next.action,next.payload);
+      if(!result.ok){stopDungeonAuto(state);autoArmed=false;toast(result.message);}
+      if(!state.expedition.auto.battle&&!state.expedition.auto.repeat){autoArmed=false;releaseAutoLease();}
+      save();render();
+      if(hadDialog){if(state.expedition.run)showPending();else dialog.close();}
+      if(!state.expedition.run&&state.expedition.last)toast(result.message);
+    }
+  }catch{autoArmed=false;stopDungeonAuto(state);releaseAutoLease();save();render();toast('自动行动已暂停，当前进度已保留');}
+  finally{setTimeout(autoStep,650);}
+}
+setTimeout(autoStep,650);
+document.addEventListener('visibilitychange',()=>{if(document.hidden){autoArmed=false;releaseAutoLease();}else{render();if(dialog.open&&document.querySelector('.dungeon-dialog'))showPending();}});
+window.addEventListener('pagehide',releaseAutoLease);
+window.addEventListener('storage',event=>{if(event.key!==SAVE_KEY||!event.newValue)return;try{const updated=validateSave(JSON.parse(event.newValue));autoArmed=false;releaseAutoLease();state=updated;render();if(dialog.open){dialog.close();}toast('已同步另一页面进度；自动行动已暂停');}catch{/* An invalid external save never replaces current progress. */}});

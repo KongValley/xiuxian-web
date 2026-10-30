@@ -42,6 +42,14 @@ export interface ActiveSet extends SetEffect { pieces: number }
 export interface Combat {
   kind: 'combat'; region: string; name: string; hp: number; maxHp: number; attack: number;
   shield: number; pathUsed: boolean; artifactCooldown: number; turns: string[];
+  dungeon?: true; round?: number;
+}
+export type DungeonMechanic='storm'|'venom'|'vampire'|'rage'|'ward';
+export interface DungeonRun {id:string;node:number;phase:'ready'|'combat'|'choice'|'camp';might:number;ward:number;spoils:number;rounds:number;started:number}
+export interface DungeonResult {id:string;won:boolean;first:boolean;day:number;summary:string}
+export interface ExpeditionState {
+  tokens:number;clears:Record<string,number>;run:DungeonRun|null;last:DungeonResult|null;
+  auto:{battle:boolean;repeat:boolean;remaining:number;target:string|null;rest:boolean;potions:boolean};
 }
 export interface Encounter {
   kind: 'event'; region: string; title: string; desc: string; variant: 'sage' | 'cave';
@@ -52,6 +60,7 @@ export interface GameState extends RealmPosition {
   path: PathId | null; gear: Record<string, number>; artifacts: Record<string, number>;
   roots:SpiritRoots;
   reforge:ReforgeState;
+  expedition:ExpeditionState;
   equipped: Record<string, string | null>; dust: number; books: Record<string, number>; activeBooks:string[];
   items: Record<string, number>; focus: boolean; pity: number; stats: Record<string, number>;
   claimed: string[]; pending: Combat | Encounter | null; ended: boolean; logs: LogEntry[];

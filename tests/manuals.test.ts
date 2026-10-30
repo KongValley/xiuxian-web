@@ -83,7 +83,7 @@ test('v4 存档迁移不损失三卷重数、属性、战局，迁移不改原�
   const old=ready();old.version=4;old.books={breath:4,sword:3,body:2};old.hp=77;old.energy=62;old.activeBooks=[];
   old.pending={kind:'combat',region:'bamboo',name:'山间灵狼',hp:35,maxHp:48,attack:11,shield:0,pathUsed:false,artifactCooldown:2,turns:['旧战局。']};
   const original=structuredClone(old),before=attributes(old),migrated=validateSave(old);
-  assert.deepEqual(old,original);assert.equal(migrated.version,8);assert.deepEqual(migrated.books,old.books);assert.deepEqual(migrated.activeBooks,['breath','sword','body']);
+  assert.deepEqual(old,original);assert.equal(migrated.version,9);assert.deepEqual(migrated.books,old.books);assert.deepEqual(migrated.activeBooks,['breath','sword','body']);
   assert.deepEqual(attributes(migrated),before);assert.equal(migrated.hp,77);assert.equal(migrated.energy,62);assert.deepEqual(validateSave(migrated),migrated);
   assert.deepEqual(migrated.pending,old.pending);
 });

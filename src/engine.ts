@@ -5,11 +5,13 @@ import { BOOKS, FOUNDATION_BOOKS, MAX_ACTIVE_BOOKS, findManual, manualEffects } 
 import { artifactPower, LEGACY_ARTIFACT_IDS } from './artifacts.js';
 import { ROOT_ACTIONS, actRoot, createRoots, gainRootEssence, rootEffects, validateRoots } from './roots.js';
 import { AFFIX_ACTIONS, actAffix, affixBonus, affixSpecials, createReforge, gainReforgeShards, validateReforge } from './affixes.js';
+import { DUNGEON_ACTIONS, actDungeon, createExpedition, dungeonBonus, dungeonDefeat, dungeonEnemy, dungeonVictory, findDungeon, validateExpedition } from './dungeons.js';
+import { armorDamage, cultivationBase, enemyArmorDamage, potionRecovery, recovery } from './balance.js';
 export { REALMS, STAGES } from './realms.js';
 export { BOOKS } from './manuals.js';
 export const ITEMS = [
-  { id: 'qi', name: '聚气丹', label: '聚', desc: '恢复 40 点灵力', price: 15, kind: '丹药' },
-  { id: 'heal', name: '回春丹', label: '春', desc: '恢复 60 点气血', price: 20, kind: '丹药' },
+  { id: 'qi', name: '聚气丹', label: '聚', desc: '恢复 40% 灵力上限，至少 40 点', price: 15, kind: '丹药' },
+  { id: 'heal', name: '回春丹', label: '春', desc: '恢复 40% 气血上限，至少 60 点', price: 20, kind: '丹药' },
   { id: 'focus', name: '凝神丹', label: '凝', desc: '下次突破成功率 +20%', price: 60, kind: '丹药' },
   { id: 'herb', name: '凝露草', label: '草', desc: '炼丹材料 · 出售得 5 灵石', price: 12, kind: '灵材' }
 ];
@@ -28,7 +30,7 @@ export const QUESTS = [
   { id: 'ascend', title: '长生可期', desc: '成功突破九次境界', key: 'breaks', goal: 9, reward: 300 }
 ];
 export function createGame(name = '云归客'): GameState {
-  return { version: 8, name: name.slice(0, 12), day: 1, realm: 0, stage: 0, xp: 0, hp: 100, energy: 100, stones: 88,
+  return { version: 9, expedition:createExpedition(), name: name.slice(0, 12), day: 1, realm: 0, stage: 0, xp: 0, hp: 100, energy: 100, stones: 88,
     path:null, roots:createRoots(), reforge:createReforge(), gear:{...STARTER_GEAR}, artifacts:{...STARTER_ARTIFACTS}, equipped:{weapon:null,armor:null,charm:null,artifact:null}, dust:0,
     books: { breath: 1, sword: 0, body: 0 }, activeBooks:['breath'], items: { qi: 2, heal: 2, focus: 0, herb: 3 }, focus: false, pity: 0,
     stats: { cultivates: 0, explores: 0, breaks: 0, wins: 0, studies: 0 }, claimed: [], pending: null, ended: false,
@@ -45,6 +47,7 @@ function calculateAttributes(s: GameState,rank: number) {
   const set=equippedSet(s);if(set)for(const [k,v]of Object.entries(set.bonus))bonus[k as Stat]+=v;
   const m=manualEffects(s);for(const k of Object.keys(bonus) as Stat[])bonus[k]+=m[k];
   const roots=rootEffects(s);for(const k of Object.keys(bonus) as Stat[])bonus[k]+=roots[k];
+  const merit=dungeonBonus(s);for(const k of Object.keys(bonus) as Stat[])bonus[k]+=merit[k];
   return { maxHp: Math.round((100 + rank * 24 + bonus.hp)*(s.path==='yao'?1.25:1)), maxEnergy: 100 + s.realm * 10 + bonus.energy + (s.path==='immortal'?20:0), attack: Math.round((14 + rank * 6 + bonus.attack)*(s.path==='demon'?1.2:1)), defense: Math.max(0,Math.round(3 + rank * 2 + bonus.defense + (s.path==='yao'?3:s.path==='demon'?-2:0))), xpNeed: Math.round(100 * (1 + rank * 0.6)), chance: Math.min(100, 80 - s.realm * 5 + (s.focus ? 20 : 0) + s.pity * 10 + (s.path==='immortal'?5:0)+m.chance+roots.chance+affixSpecials(s).chance) };
 }
 export function endingLabel(s: GameState) { return PATHS.find(p=>p.id===s.path)?.ending || '羽化登仙'; }
@@ -68,11 +71,14 @@ function dropLoot(s: GameState, catalog: EquipmentItem[]|ArtifactItem[], rng: Ra
 }
 function combatDamage(s: GameState, damage: number, label: string, rng: RandomSource, extraDrain=0) {
   if(s.pending?.kind!=='combat')return null;
-  const e=s.pending,actual=Math.min(e.hp,damage), a=attributes(s);
+  const e=s.pending,a=attributes(s);
+  if(e.dungeon){const run=s.expedition.run!,d=findDungeon(run.id)!,def=dungeonEnemy(d,run.node).defense;damage=enemyArmorDamage(Math.round(damage*(1+run.might)),label==='你凝气出手'?def:def*.5);}
+  const actual=Math.min(e.hp,damage);
   e.hp=Math.max(0,e.hp-damage);e.turns.push(`${label}，造成 ${damage} 点伤害。`);
   const drain=(s.path==='demon'?.12:0)+extraDrain+(equippedSet(s)?.drain||0)+manualEffects(s).drain;
   if(drain){const heal=Math.min(a.maxHp-s.hp,Math.round(actual*drain));s.hp+=heal;if(heal)e.turns.push(`汲取生机，气血 +${heal}。`);}
   if(e.hp>0)return null;
+  if(e.dungeon)return dungeonVictory(s,rng,{attributes,gainXp,log});
   const r=REGIONS.find(x=>x.id===e.region)!, xp=gainXp(s,35+r.realm*20),dust=1+r.realm;
   s.stones+=r.reward;s.items.herb+=2;s.stats.wins++;s.stats.explores++;s.dust+=dust;
   const loot=rng()<.35?dropLoot(s,EQUIPMENT,rng):'';
@@ -85,15 +91,27 @@ function enemyAttack(s: GameState, rng: RandomSource, guard = false) {
   if(s.pending?.kind!=='combat')return null;
   const e = s.pending;
   let damage = Math.max(1, rand(rng, e.attack - 2, e.attack + 3) - attributes(s).defense - (guard ? 7 + s.realm * 3 : 0));
+  if(e.dungeon){
+    const run=s.expedition.run!,d=findDungeon(run.id)!;e.round=(e.round||0)+1;
+    const boss=run.node===4,heavy=boss&&e.round%3===0;
+    let raw=rand(rng,e.attack-2,e.attack+3)*(heavy?1.9:1);
+    if(boss&&d.mechanic==='rage')raw*=1+Math.min(.35,(e.round-1)*.035);
+    damage=armorDamage(raw,attributes(s).defense,d.realm,guard);
+    if(boss&&d.mechanic==='venom')damage+=Math.max(1,Math.round(attributes(s).maxHp*.02*(guard?.5:1)));
+    if(heavy)e.turns.push(guard?'你守住心神，卸去首领蓄力重击。':'首领蓄力已满，重击骤然落下！');
+    if(boss&&e.round%3===2)e.turns.push('【蓄力预警】下一轮首领施展重击，守心可大幅减伤！');
+  }
   if(e.shield){const absorbed=Math.min(e.shield,damage);e.shield-=absorbed;damage-=absorbed;e.turns.push(`护盾吸收 ${absorbed} 点伤害。`);}
   e.artifactCooldown=Math.max(0,(e.artifactCooldown||0)-1);
   s.hp = Math.max(0, s.hp - damage);
+  if(e.dungeon&&s.expedition.run?.node===4&&findDungeon(e.region)?.mechanic==='vampire'){const heal=Math.min(e.maxHp-e.hp,Math.round(Math.min(damage,s.hp+damage)*.25));e.hp+=heal;if(heal)e.turns.push(`首领汲血，恢复 ${heal} 气血。`);}
   e.turns.push(`${e.name}发起攻击，你受到 ${damage} 点伤害。`);
   e.turns = e.turns.slice(-8);
   if (s.hp <= 0) {
     const loss = Math.min(s.stones, Math.round(s.stones * 0.15)); s.stones -= loss;
     s.hp = Math.ceil(attributes(s).maxHp * 0.4); s.energy = Math.min(s.energy, 25); s.day += 2;
     log(s, `不敌${e.name}，借遁符退回洞府。疗伤两日，遗失 ${loss} 灵石。`, 'danger'); s.pending = null;
+    if(e.dungeon)dungeonDefeat(s,`不敌${e.name}，遗失 ${loss} 灵石；保留途中材料，自动刷本已停止。`);
     return '灵符护住了心脉，你已退回洞府。';
   }
   const set=equippedSet(s);
@@ -111,7 +129,13 @@ function enemyAttack(s: GameState, rng: RandomSource, guard = false) {
 }
 export function act(s: GameState, action: string, payload?: string|null, rng: RandomSource = Math.random): ActionResult {
   payload ??= '';
-  if (s.ended && ![...ROOT_ACTIONS,...AFFIX_ACTIONS, 'use', 'sell', 'buy', 'study', 'activateBook', 'deactivateBook', 'switchBook', 'choosePath', 'rest', 'gather', 'claim', 'buyGear', 'buyArtifact', 'equip', 'equipArtifact', 'unequip', 'upgradeGear', 'upgradeArtifact'].includes(action)) return fail('你已证道长生。可以在设置中开启新一段仙途。');
+  if(DUNGEON_ACTIONS.includes(action)){
+    if(s.pending&&!['dungeonLeave','dungeonAutoStop','dungeonAutoBattle','dungeonAutoRest','dungeonAutoPotions'].includes(action))return fail('先完成当前战局。');
+    return actDungeon(s,action,payload,{attributes,gainXp,log});
+  }
+  if(s.expedition.run&&!['attack','skill','guard','flee','use','pathSkill','artifactSkill'].includes(action))return fail('先完成或撤离当前副本。');
+  if(s.expedition.auto.repeat&&!s.expedition.run&&!['rest'].includes(action))return fail('自动刷本进行中，请先停止自动行动。');
+  if (s.ended && !s.expedition.run && ![...ROOT_ACTIONS,...AFFIX_ACTIONS, 'use', 'sell', 'buy', 'study', 'activateBook', 'deactivateBook', 'switchBook', 'choosePath', 'rest', 'gather', 'claim', 'buyGear', 'buyArtifact', 'equip', 'equipArtifact', 'unequip', 'upgradeGear', 'upgradeArtifact'].includes(action)) return fail('你已证道长生。可以在设置中开启新一段仙途。');
   if (s.pending && !['choice', 'attack', 'skill', 'guard', 'flee', 'use', 'pathSkill', 'artifactSkill'].includes(action)) return fail('先完成眼前的机缘，再继续仙途。');
   if(ROOT_ACTIONS.includes(action)){const result=actRoot(s,action,payload);if(result.ok){clampVitals(s);log(s,result.message,'cultivate');}return result;}
   if(AFFIX_ACTIONS.includes(action)){const result=actAffix(s,action,payload,rng);if(result.ok){clampVitals(s);log(s,result.message,'cultivate');}return result;}
@@ -122,13 +146,14 @@ export function act(s: GameState, action: string, payload?: string|null, rng: Ra
       if (s.xp >= a.xpNeed) return fail('修为已圆满，请先尝试突破。');
       const retreat = action === 'retreat', cost = retreat ? 28 : 10;
       if (!spend(s, cost, retreat ? 3 : 1)) return fail('灵力不足，先静养或服用聚气丹。');
-      const amount = gainXp(s, Math.round(rand(rng, 17, 23) * cultivationRate(s) * (retreat ? 3.2 : 1)));
+      const amount = gainXp(s, Math.round(rand(rng, 17, 23) * cultivationBase(s) * cultivationRate(s) * (retreat ? 3.2 : 1)));
       s.stats.cultivates++;
       log(s, `${retreat ? '闭关三日' : '静坐吐纳'}，周天运转，丹田渐盈。修为 +${amount}。`, 'cultivate'); message = `修为 +${amount}`; break;
     }
     case 'rest': {
       if (s.energy >= a.maxEnergy && s.hp >= a.maxHp) return fail('气血与灵力充盈，无需静养。');
-      s.day++; const e = Math.min(45, a.maxEnergy - s.energy), h = Math.min(35, a.maxHp - s.hp);
+      const amount=recovery(a.maxHp,a.maxEnergy);
+      s.day++; const e = Math.min(amount.energy, a.maxEnergy - s.energy), h = Math.min(amount.hp, a.maxHp - s.hp);
       s.energy += e; s.hp += h; log(s, `听泉静养一日，心神渐宁。灵力 +${e}，气血 +${h}。`, 'rest'); message = '一夜好眠，身心渐复'; break;
     }
     case 'gather': {
@@ -186,7 +211,7 @@ export function act(s: GameState, action: string, payload?: string|null, rng: Ra
       if (s.pending?.kind !== 'combat') return fail('当前没有战斗。');
       const e = s.pending;
       if (action === 'flee') {
-        if (rng() < 0.8) { log(s, `收敛气息，从${e.name}眼前遁走，平安返回洞府。`, 'normal'); s.pending = null; message = '暂避锋芒，平安归来'; break; }
+        if (rng() < 0.8) { log(s, `收敛气息，从${e.name}眼前遁走，平安返回洞府。`, 'normal'); s.pending = null;if(e.dungeon)dungeonDefeat(s,'遁走撤离，保留途中材料，未获得首领奖励。'); message = '暂避锋芒，平安归来'; break; }
         e.turns.push('遁走未成，被妖兽追上。');
       } else if (action === 'guard') { const energy = Math.min(12, a.maxEnergy - s.energy); s.energy += energy; e.turns.push(`凝气守心，恢复 ${energy} 点灵力，抵御本轮伤害。`); }
       else {
@@ -281,8 +306,9 @@ export function act(s: GameState, action: string, payload?: string|null, rng: Ra
     }
     case 'use': {
       const item = ITEMS.find(x => x.id === payload); if (!item || payload === 'herb' || !s.items[payload]) return fail('行囊中没有此丹药。');
-      if (payload === 'qi') { if (s.energy >= a.maxEnergy) return fail('灵力充盈，暂时无需服丹。'); const n = Math.min(40, a.maxEnergy - s.energy); s.energy += n; message = `聚气丹入腹 · 灵力 +${n}`; }
-      if (payload === 'heal') { if (s.hp >= a.maxHp) return fail('气血充盈，暂时无需服丹。'); const n = Math.min(60, a.maxHp - s.hp); s.hp += n; message = `药力化开 · 气血 +${n}`; }
+      if(s.expedition.run&&!s.pending)return fail('整备请使用灵泉营地，或在战斗中服丹。');
+      if (payload === 'qi') { if (s.energy >= a.maxEnergy) return fail('灵力充盈，暂时无需服丹。'); const n = Math.min(potionRecovery('qi',a.maxHp,a.maxEnergy), a.maxEnergy - s.energy); s.energy += n; message = `聚气丹入腹 · 灵力 +${n}`; }
+      if (payload === 'heal') { if (s.hp >= a.maxHp) return fail('气血充盈，暂时无需服丹。'); const n = Math.min(potionRecovery('heal',a.maxHp,a.maxEnergy), a.maxHp - s.hp); s.hp += n; message = `药力化开 · 气血 +${n}`; }
       if (payload === 'focus') { if (s.focus) return fail('凝神之效尚在，下次突破生效。'); if (s.pending) return fail('凝神丹需在洞府静心服用。'); s.focus = true; message = '心神澄澈 · 下次突破成功率 +20%'; }
       s.items[payload]--; log(s, message, 'rest');
       if (s.pending?.kind === 'combat') { s.pending.turns.push(message); message = enemyAttack(s, rng) || message; }
@@ -337,8 +363,9 @@ export function act(s: GameState, action: string, payload?: string|null, rng: Ra
   return { ok: true, message };
 }
 export function validateSave(value: unknown): GameState {
-  if (!value || typeof value!=='object' || !('version' in value) || ![1,2,3,4,5,6,7,8].includes(value.version as number)) throw new Error('存档版本不兼容');
+  if (!value || typeof value!=='object' || !('version' in value) || ![1,2,3,4,5,6,7,8,9].includes(value.version as number)) throw new Error('存档版本不兼容');
   const s = structuredClone(value) as GameState;
+  if(s.version<9)s.expedition=createExpedition();else validateExpedition(s);
   const legacy=s.version<3;
   const layered=s.version===3;
   if(s.version<7)s.roots=createRoots();else s.roots=validateRoots(s.roots,s.realm);
@@ -380,6 +407,9 @@ export function validateSave(value: unknown): GameState {
   if (s.hp > a.maxHp || s.energy > a.maxEnergy || s.xp > a.xpNeed) throw new Error('角色属性超出上限');
   if (s.pending) {
     const e = s.pending, r = REGIONS.find(x => x.id === e.region);
+    if(e.kind==='combat'&&e.dungeon){
+      if(!s.expedition.run||!Array.isArray(e.turns)||e.turns.length>10||e.turns.some(t=>typeof t!=='string'||t.length>300)||typeof e.pathUsed!=='boolean'||!Number.isInteger(e.shield)||e.shield<0||e.shield>a.maxHp||!Number.isInteger(e.artifactCooldown)||e.artifactCooldown<0||e.artifactCooldown>3)throw new Error('副本战斗状态无效');
+    }else{
     if (!r || r.realm > s.realm) throw new Error('历练地点无效');
     if (e.kind === 'combat') {
       if (e.name !== r.enemy || e.maxHp !== r.hp || e.attack !== r.atk || !Number.isInteger(e.hp) || e.hp < 1 || e.hp > r.hp || !Array.isArray(e.turns) || e.turns.length > 10 || e.turns.some(t => typeof t !== 'string' || t.length > 300)) throw new Error('战斗数据无效');
@@ -387,6 +417,7 @@ export function validateSave(value: unknown): GameState {
     } else if (e.kind === 'event') {
       if (!['sage','cave'].includes(e.variant) || typeof e.title !== 'string' || e.title.length > 60 || typeof e.desc !== 'string' || e.desc.length > 500) throw new Error('奇遇数据无效');
     } else throw new Error('历练状态无效');
+    }
   }
   if(legacy||layered){
     const fraction=s.xp/a.xpNeed;
@@ -400,7 +431,7 @@ export function validateSave(value: unknown): GameState {
     clampVitals(s);
     if(s.pending?.kind==='combat')s.pending.shield=Math.min(s.pending.shield,attributes(s).maxHp);
   }
-  s.version=8;
+  s.version=9;
   clampVitals(s);
   return s;
 }

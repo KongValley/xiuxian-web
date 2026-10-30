@@ -87,7 +87,7 @@ test('v5六件旧宝无损迁移，保留强化、装备、功法、资源和战
   for(const id of LEGACY_ARTIFACT_IDS){
     const item=ARTIFACTS.find(i=>i.id===id)!,old=ready(item,2,3);old.version=5;old.hp=73;old.energy=45;
     const region=REGIONS[Math.min(item.realm,3)];old.pending={kind:'combat',region:region.id,name:region.enemy,hp:region.hp,maxHp:region.hp,attack:region.atk,shield:12,pathUsed:true,artifactCooldown:2,turns:['旧宝仍在护持。']};
-    const snapshot=structuredClone(old),loaded=validateSave(old);assert.deepEqual(old,snapshot);assert.equal(loaded.version,8);assert.equal(loaded.equipped.artifact,id);assert.deepEqual(loaded.artifacts,old.artifacts);assert.deepEqual(loaded.books,old.books);assert.deepEqual(loaded.pending,old.pending);assert.equal(loaded.hp,73);assert.equal(loaded.energy,45);assert.deepEqual(validateSave(loaded),loaded);
+    const snapshot=structuredClone(old),loaded=validateSave(old);assert.deepEqual(old,snapshot);assert.equal(loaded.version,9);assert.equal(loaded.equipped.artifact,id);assert.deepEqual(loaded.artifacts,old.artifacts);assert.deepEqual(loaded.books,old.books);assert.deepEqual(loaded.pending,old.pending);assert.equal(loaded.hp,73);assert.equal(loaded.energy,45);assert.deepEqual(validateSave(loaded),loaded);
   }
 });
 
