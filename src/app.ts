@@ -4,6 +4,7 @@ import { FINAL_REALM, TOTAL_BREAKTHROUGHS, stageCount, worldLabel, nextStep, isA
 import type { ArtifactItem, Bonus, EquipmentItem, LogEntry, SetEffect, SpiritItem } from './types.js';
 import { breakthroughScene, previewBreakthrough } from './breakthrough-scene.js';
 import { animationPreference, playBreakthrough, setAnimationEnabled } from './breakthrough-effects.js';
+import { findManual, manualEffects, manualEffectText, MAX_ACTIVE_BOOKS } from './manuals.js';
 
 const paths: Record<string,string> = {
   home: '<path d="m3 11 9-8 9 8M5 10v10h14V10M9 20v-7h6v7"/>',
@@ -38,6 +39,7 @@ const SAVE_KEY = 'wendao-changsheng-v1';
 let state = createGame(), tab = 'home', filter = 'all', shopSection = 'items', gearRealm = 'current', storageAvailable = true;
 let toastTimer: ReturnType<typeof setTimeout> | undefined;
 let breakthroughPlaying=false;
+let bookPath='current',bookRealm='current',bookStatus='all',bookType='all',bookSearch='',bookPage=0;
 let loadWarning = '';
 try { const raw = localStorage.getItem(SAVE_KEY); if (raw) state = validateSave(JSON.parse(raw)); }
 catch { loadWarning = '旧存档无法读取，已开启新仙途。你仍可导入备份。'; }
@@ -70,7 +72,7 @@ function renderCharacter() {
   const path=PATHS.find(p=>p.id===state.path);
   $('#character').innerHTML = `<div class="character-header"><div class="avatar">${icon('meditate')}</div><div><div class="character-name">${escape(state.name)}<button data-ui="rename" aria-label="修改道号" title="修改道号">✎</button></div><span class="realm-tag">${realmLabel(state)}</span></div><span class="root-tag">${path?.name || '未入道'}</span></div>
   <div class="stat-bars">${bars.map(([key,name,val,max,i]) => `<div class="stat-group"><div class="stat-line"><span>${icon(i)}${name}</span><span class="stat-value">${val} <span style="color:#b6bba9">/ ${max}</span></span></div><div class="bar" role="progressbar" aria-label="${name}" aria-valuenow="${val}" aria-valuemin="0" aria-valuemax="${max}"><div class="bar-fill ${key}" style="width:${val / max * 100}%"></div></div></div>`).join('')}</div>
-  <dl class="attributes"><div><dt>攻击</dt><dd>${a.attack}</dd></div><div><dt>防御</dt><dd>${a.defense}</dd></div><div><dt>道龄</dt><dd>${Math.floor((state.day - 1) / 360)} 年 ${((state.day - 1) % 360)} 日</dd></div><div><dt>功法</dt><dd>${Object.values(state.books).filter(x=>x>0).length} 部</dd></div></dl>
+  <dl class="attributes"><div><dt>攻击</dt><dd>${a.attack}</dd></div><div><dt>防御</dt><dd>${a.defense}</dd></div><div><dt>道龄</dt><dd>${Math.floor((state.day - 1) / 360)} 年 ${((state.day - 1) % 360)} 日</dd></div><div><dt>功法</dt><dd>${state.activeBooks.length} / 10</dd></div></dl>
   <div class="wealth">${icon('coin')}<span>灵石</span><strong>${state.stones.toLocaleString()}</strong><small>枚</small></div>
   <div class="loadout-summary"><button data-tab="paths">${path ? path.name+' · '+path.skill : '仙 / 魔 / 妖 · 选择路径'} <span>↗</span></button><button data-tab="gear">${state.equipped.artifact ? ARTIFACTS.find(i=>i.id===state.equipped.artifact)!.name : '前往装备灵器与法宝'} <span>↗</span></button></div>
   <p class="character-note">${state.focus ? '凝神之效 · 下次突破成功率 +20%' : state.xp >= a.xpNeed ? '修为已圆满，正是破境好时机' : state.energy < 15 ? '灵力渐乏，不妨听泉静养一日' : '心若澄明，处处皆是修行'}</p>`;
@@ -111,7 +113,7 @@ function renderHome() {
     if (action === 'cultivate') reward = `修为 +${Math.round(17 * rate)}～${Math.round(23 * rate)}`;
     if (action === 'retreat') reward = `修为 +${Math.round(17 * rate * 3.2)}～${Math.round(23 * rate * 3.2)}`;
     if (action === 'gather' && state.realm) reward = `凝露草 +1～3 · 灵石 +${5+state.realm*3}～${12+state.realm*3}`;
-    return `<article class="panel practice-card"><div class="card-top"><span class="action-icon">${icon(i)}</span><div><h3>${title}</h3><small>${en}</small></div></div><p>${desc}</p><div class="card-meta"><span>${reward}</span><span>${cost}</span></div><div class="card-action"><span>${note}</span>${actionButton(action, label + icon('arrow'), '', kind, state.ended)}</div></article>`;
+    return `<article class="panel practice-card"><div class="card-top"><span class="action-icon">${icon(i)}</span><div><h3>${title}</h3><small>${en}</small></div></div><p>${desc}</p><div class="card-meta"><span>${reward}</span><span>${cost}</span></div><div class="card-action"><span>${note}</span>${actionButton(action, label + icon('arrow'), '', kind, state.ended&&!['rest','gather'].includes(action))}</div></article>`;
   }).join('')}</div>
   <div class="break-card"><div class="break-symbol"><span>境</span></div><div class="break-info"><h3>${state.ended ? '仙道初成，已入真仙' : isAscension(state)?'大乘圆满 · 准备渡飞升之劫':full ? '修为圆满 · 可尝试破境' : '厚积薄发，静待破境之时'}</h3><p>${state.ended?'已渡劫飞升':`当前修为 ${state.xp} / ${a.xpNeed} · 成功率 ${a.chance}%${state.focus?' · 凝神护持':''}`}</p></div><button class="btn ${full ? 'gold' : 'outline'}" data-ui="breakthrough"${state.ended ? ' disabled' : ''}>${isAscension(state)?'渡劫飞升':full ? '尝试突破' : '破境详情'} ${icon('arrow')}</button></div>
   ${sectionHeading('scroll','仙途机缘','每一步修行，都有回响')}${questMarkup()}`;
@@ -127,10 +129,23 @@ function renderExplore() {
   }).join('')}</div><p class="soundless-note">历练提示：气血不足四分之一时无法出行。战败会退回洞府、失去 15% 灵石；先在行囊备好丹药。战斗中服丹也会消耗一回合。</p>`;
 }
 function renderBooks() {
-  return `${intro('一卷道藏，万法生焉','研习功法，可以提升吐纳收益、剑术与体魄。每部五重，境界之外，亦有精进之路。','THE LIBRARY OF TAO')}${sectionHeading('book','藏经三卷','研习耗时 1 日 · 灵力 −12')}${BOOKS.map(b => {
-    const level = state.books[b.id], maxed = level >= b.max, cost = b.cost * (level + 1);
-    return `<article class="panel book-card"><div class="book-cover"><span>${b.name}</span></div><div class="book-info"><h3>${b.name}</h3><p>${b.desc}</p><div class="book-tags"><span class="tag">${b.grade} · ${b.type}</span><span>${level ? `第 ${level} 重 / 五重` : '尚未入门'}</span></div></div><div class="book-control">${actionButton('study', maxed ? '已臻圆满' : level ? '研习进阶' : '领悟功法', b.id, 'outline', maxed)}<small>${maxed ? '道法圆成' : `${cost} 灵石 · 12 灵力`}</small></div></article>`;
-  }).join('')}`;
+  const chosenPath=bookPath==='current'?(state.path||'immortal'):bookPath,chosenRealm=bookRealm==='current'?state.realm:Number(bookRealm);
+  const active=state.activeBooks,learned=Object.values(state.books).filter(n=>n>0).length;
+  const combined=manualEffects(state);combined.heal=Math.min(combined.heal,Math.floor(attributes(state).maxHp*.08));
+  const filtered=BOOKS.filter(b=>(bookPath==='all'||bookPath==='base'?!b.path||bookPath==='all':!b.path||b.path===chosenPath)&&(bookRealm==='all'||!b.path||b.realm===chosenRealm)&&(bookStatus==='all'||bookStatus==='learned'&&(state.books[b.id]||0)>0||bookStatus==='active'&&active.includes(b.id))&&(bookType==='all'||b.type===bookType)&&(!bookSearch||(b.name+b.desc+b.type).includes(bookSearch)));
+  const pages=Math.max(1,Math.ceil(filtered.length/20));bookPage=Math.min(bookPage,pages-1);
+  const options=(values:string[][],selected:string)=>values.map(([value,label])=>`<option value="${value}"${selected===value?' selected':''}>${label}</option>`).join('');
+  const slots=Array.from({length:MAX_ACTIVE_BOOKS},(_,index)=>{
+    const id=active[index],b=id?findManual(id):null;
+    return b?`<article class="manual-slot"><span class="manual-slot-no">${String(index+1).padStart(2,'0')}</span><div><h3>${b.name}</h3><p>${b.path?PATHS.find(p=>p.id===b.path)!.name:'通用'} · ${REALMS[b.realm]} · 第 ${state.books[b.id]} 重</p></div><button class="text-link" data-ui="sealBook" data-value="${b.id}" aria-label="封存${b.name}">封存 ↗</button></article>`:`<div class="manual-slot empty"><span class="manual-slot-no">${String(index+1).padStart(2,'0')}</span><span>虚位以待 · 可纳入一部功法</span></div>`;
+  }).join('');
+  const cards=filtered.slice(bookPage*20,bookPage*20+20).map(b=>{
+    const level=state.books[b.id]||0,isActive=active.includes(b.id),maxed=level>=b.max,cost=b.cost*(level+1),locked=b.realm>state.realm||!!b.path&&b.path!==state.path;
+    const lockReason=b.realm>state.realm?`${REALMS[b.realm]}可修`:b.path&&b.path!==state.path?'需'+PATHS.find(p=>p.id===b.path)!.name:'';
+    const controls=isActive?`${actionButton('study',maxed?'已臻圆满':'研习进阶',b.id,'outline',maxed||!!state.pending||state.stones<cost||state.energy<12)}<small>${maxed?'道法圆成':`${cost} 灵石 · 12 灵力 · 1 日`}</small>`:level?`${actionButton('activateBook','恢复兼修',b.id,'outline',locked||!!state.pending||active.length>=10||state.stones<10*(b.realm+1)||state.energy<8)}<small>${10*(b.realm+1)} 灵石 · 8 灵力 · 1 日</small>`:`${actionButton('study',lockReason||'领悟并兼修',b.id,'outline',locked||!!state.pending||active.length>=10||state.stones<cost||state.energy<12)}<small>${cost} 灵石 · 12 灵力 · 1 日</small>`;
+    return `<article class="panel book-card manual-card ${b.path||'base'}${isActive?' attuned':''}"><div class="book-cover"><span>${b.name}</span></div><div class="book-info"><div class="manual-card-meta">${b.path?PATHS.find(p=>p.id===b.path)!.name:'通用根基'} / ${REALMS[b.realm]} / ${b.type}</div><h3>${b.name}</h3><p>${b.desc}</p><p class="manual-effect">每重：${manualEffectText(b.effects)}</p><div class="book-tags"><span class="tag">${isActive?'兼修生效':level?'已学 · 封存':'尚未入门'}</span><span>${level?'第 '+level+' 重 / 五重':'上限五重'}</span></div>${level?`<p class="manual-current">第 ${level} 重${isActive?'生效':'潜力'}：${manualEffectText(b.effects,level)}</p>`:''}</div><div class="book-control">${controls}${!isActive&&active.length?`<button class="text-link" data-ui="switchBook" data-value="${b.id}"${locked||state.pending?' disabled':''}>选择转修 ↗</button>`:''}</div></article>`;
+  }).join('');
+  return `${pendingBanner()}${intro('万卷道藏，择十而修','仙魔妖各境十卷，共 270 部三途功法。另有三部通用根基；每部五重，最多同时兼修十部。','THE LIBRARY OF TAO')}${!state.path?'<div class="path-invitation"><span>先立道心，解锁对应路径的功法。</span><button class="text-link" data-tab="paths">前往择道 ↗</button></div>':''}${sectionHeading('lotus','我的兼修',`${active.length} / 10 生效 · 已学 ${learned} 部`)}<div class="manual-slots">${slots}</div><div class="panel manual-summary"><h3>周天合效</h3><p>${manualEffectText(combined)||'尚未兼修功法'}</p><small>同类相加：修炼收益上限 +120%，破境 +15 个百分点，功法汲血 20%，护盾 30%，御剑倍率 +0.75，回合回灵 10；功法回合回血不超过气血上限 8%。护盾与套装取较高值。</small></div><details class="manual-rules"><summary>功法获取、转修与叠加规则</summary><p>藏经阁以灵石兑换并参悟，无需随机抽取；达到境界、选择对应路径后可修。初学自动纳入兼修，研习耗时一日、消耗 12 灵力，灵石随重数递增。已学功法可封存，数量不限且永久保留重数，封存后不生效；恢复兼修需 10×（功法境界序号+1）灵石、8 灵力与一日。转修时选择一本兼修功法替换，若新功法未学则支付首重研习成本，已学则支付恢复兼修成本。基础三卷也占名额；低境功法可一直保留。换法不治疗，气血灵力超过新上限时裁剪；历练中不能学习或换法。改修仙魔妖会封存不相符功法，原重数不丢失。</p></details>${sectionHeading('book','三途道藏',`筛选 ${filtered.length} 部 · 第 ${bookPage+1} / ${pages} 页`)}<div class="manual-filters"><label>路径<select data-book-filter="path" aria-label="功法路径">${options([['current','当前路径'],['immortal','仙修'],['demon','魔修'],['yao','妖修'],['base','通用三卷'],['all','全部路径']],bookPath)}</select></label><label>境界<select data-book-filter="realm" aria-label="功法境界">${options([['current','当前境界'],...REALMS.map((r,i)=>[String(i),r]),['all','全部境界']],bookRealm)}</select></label><label>状态<select data-book-filter="status" aria-label="功法状态">${options([['all','全部功法'],['learned','已学功法'],['active','正在兼修']],bookStatus)}</select></label><label>门类<select data-book-filter="type" aria-label="功法门类">${options([['all','全部门类'],...[...new Set(BOOKS.map(b=>b.type))].map(t=>[t,t])],bookType)}</select></label><form id="book-search"><label for="book-query">寻卷</label><div><input id="book-query" name="query" value="${escape(bookSearch)}" maxlength="30" placeholder="功法名、门类或意象"><button class="btn outline" type="submit">检索</button></div></form></div>${cards||'<div class="panel empty-note">未寻得符合条件的道藏，试试其他筛选。</div>'}<div class="manual-pagination"><button class="btn outline" data-ui="book-prev"${bookPage===0?' disabled':''}>上一页</button><span>${bookPage+1} / ${pages}</span><button class="btn outline" data-ui="book-next"${bookPage===pages-1?' disabled':''}>下一页</button></div>`;
 }
 function renderShop() {
   const isGear=shopSection==='gear', catalog=isGear?EQUIPMENT.filter(i=>gearRealm==='all'||i.realm===viewRealm()):ARTIFACTS, owned=isGear?state.gear:state.artifacts;
@@ -172,7 +187,7 @@ function renderGear() {
   }).join('')}</div><div class="gear-totals"><span>攻击 <b>${a.attack}</b></span><span>防御 <b>${a.defense}</b></span><span>气血上限 <b>${a.maxHp}</b></span><span>灵砂 <b>${state.dust}</b></span></div>${renderSetOverview()}${sectionHeading('sword','随身灵装','属性已含当前路径道纹')}<div class="owned-grid">${EQUIPMENT.filter(i=>Object.hasOwn(state.gear,i.id)).map(i=>ownedCard(i,false)).join('')||'<p class="empty-note">暂未拥有灵装，可前往坊市购买。</p>'}</div>${sectionHeading('lotus','法宝灵库','同一时间可炼化一件法宝')}<div class="owned-grid">${ARTIFACTS.filter(i=>Object.hasOwn(state.artifacts,i.id)).map(i=>ownedCard(i,true)).join('')}</div><p class="soundless-note">已赠青竹剑、素云袍、青纹铃，请手动装备。战胜妖兽必得灵砂，35% 概率掉落装备；成功探查遗藏后有 20% 概率获得法宝，重复灵物转为 3 灵砂。穿卸装备不会恢复气血或灵力，历练途中不可换装。</p><button class="btn outline" data-tab="shop">前往坊市寻宝 ${icon('arrow')}</button>`;
 }
 function renderPaths() {
-  return `${pendingBanner()}${intro('仙魔妖途，道由心生','同一片山河，三种问道之身。每条路都有天赋、本命神通与专属法宝，也有各自的长生结局。','THREE PATHS · ONE ETERNAL JOURNEY')}<div class="path-policy"><span class="status-dot"></span>${state.path?'当前路径：'+PATHS.find(p=>p.id===state.path)!.name+' · 改修需 100 灵石与 1 日':'尚未定道 · 首次选择免费，保留全部现有进度'}</div><div class="path-cards">${PATHS.map(p=>`<article class="panel path-card ${p.color} ${state.path===p.id?'chosen':''}"><div class="path-card-heading"><span class="path-seal">${p.mark}</span><div><div class="dialog-eyebrow">${p.id.toUpperCase()}</div><h2>${p.motto}</h2><p>${p.desc}</p></div></div><div class="path-detail"><span>天赋</span><p>${p.passive}</p></div><div class="path-detail"><span>神通</span><p><strong>${p.skill}</strong> · ${p.skillDesc}</p></div><div class="path-detail"><span>命宝</span><p>${ARTIFACTS.find(i=>i.path===p.id)!.name} · 筑基后可于坊市寻得</p></div><div class="path-bottom"><span>终途 · ${p.ending}</span><button class="btn ${state.path===p.id?'secondary':'outline'}" data-ui="choosePath" data-value="${p.id}"${state.path===p.id||state.ended?' disabled':''}>${state.path===p.id?'此心已定':state.path?'改修此道':'踏入'+p.name} ${state.path===p.id?'✓':icon('arrow')}</button></div></article>`).join('')}</div><p class="soundless-note">改修保留境界、功法与全部藏品，会自动卸下路径不符的专属法宝。路径或装备上限提升后，需静养或服丹恢复；改修与换装不治疗伤势。历练途中不可改修。</p>`;
+  return `${pendingBanner()}${intro('仙魔妖途，道由心生','同一片山河，三种问道之身。每条路都有天赋、本命神通与专属法宝，也有各自的长生结局。','THREE PATHS · ONE ETERNAL JOURNEY')}<div class="path-policy"><span class="status-dot"></span>${state.path?'当前路径：'+PATHS.find(p=>p.id===state.path)!.name+' · 改修需 100 灵石与 1 日':'尚未定道 · 首次选择免费，保留全部现有进度'}</div><div class="path-cards">${PATHS.map(p=>`<article class="panel path-card ${p.color} ${state.path===p.id?'chosen':''}"><div class="path-card-heading"><span class="path-seal">${p.mark}</span><div><div class="dialog-eyebrow">${p.id.toUpperCase()}</div><h2>${p.motto}</h2><p>${p.desc}</p></div></div><div class="path-detail"><span>天赋</span><p>${p.passive}</p></div><div class="path-detail"><span>神通</span><p><strong>${p.skill}</strong> · ${p.skillDesc}</p></div><div class="path-detail"><span>命宝</span><p>${ARTIFACTS.find(i=>i.path===p.id)!.name} · 筑基后可于坊市寻得</p></div><div class="path-bottom"><span>终途 · ${p.ending}</span><button class="btn ${state.path===p.id?'secondary':'outline'}" data-ui="choosePath" data-value="${p.id}"${state.path===p.id?' disabled':''}>${state.path===p.id?'此心已定':state.path?'改修此道':'踏入'+p.name} ${state.path===p.id?'✓':icon('arrow')}</button></div></article>`).join('')}</div><p class="soundless-note">改修保留境界、功法与全部藏品，会自动卸下路径不符的专属法宝，并封存异途功法（重数保留）。路径或装备上限提升后，需静养或服丹恢复；改修与换装不治疗伤势。历练途中不可改修。</p>`;
 }
 function renderBag() {
   return `${intro('一囊山色，半卷清风','丹药温养身心，灵材汇聚山野。善用随身之物，仙途自有余裕。','YOUR BELONGINGS')}${sectionHeading('bag','随身灵物',`共 ${Object.values(state.items).reduce((a,b)=>a+b,0)} 件物品`)}<div class="item-grid">${ITEMS.map(i=>`<article class="panel item-card"><div class="item-icon ${i.id}">${i.label}</div><h3>${i.name} <small style="color:#9eaa90;font-family:var(--sans)">× ${state.items[i.id]}</small></h3><p>${i.desc}</p><div class="item-details"><span class="tag">${i.kind}</span>${actionButton(i.id === 'herb' ? 'sell' : 'use',i.id === 'herb' ? '售出一株' : '服用一枚',i.id,'outline',state.items[i.id] === 0)}</div></article>`).join('')}</div><div class="panel alchemy-panel"><span class="action-icon">${icon('kettle')}</span><div><h3>草木为引，文火成丹</h3><p>凝露草 ×3 ＋ 灵力 10 → 聚气丹 ×1 · 耗时 1 日</p></div>${actionButton('alchemy','开炉炼丹','','secondary',state.items.herb < 3)}</div>`;
@@ -193,7 +208,7 @@ function showDialog(title: string, body: string, actions = '') {
   if (!dialog.open) dialog.showModal();
 }
 function showGuide() {
-  const steps = [['壹','吐纳入道','在洞府吐纳或闭关提升修为；灵力不足时听泉静养。所有时间都由你的选择推进。'],['贰','修为圆满，尝试破境','修为满后消耗 20 灵力突破，凝神丹能提高成功率。失败保留八成修为，后续成功率逐次增加 10%。'],['叁','行万里路，求一线缘','进入山河历练，选择奇遇或迎战妖兽。战斗中可以普攻、御剑、防守回灵或遁走；服丹会消耗一回合。'],['肆','灵材炼丹，功法立身','采药与历练获得灵石灵材，在坊市购丹、藏经阁研习功法。行囊中三株凝露草可炼一枚聚气丹。'],['伍','八境问道，渡劫登仙','炼气、筑基、结丹、元婴、化神、炼虚、合体、大乘，每境统一分初期、中期、后期、圆满。大乘圆满后渡飞升天劫，踏入真仙，共需 '+TOTAL_BREAKTHROUGHS+' 次成功破境。']];
+  const steps = [['壹','吐纳入道','在洞府吐纳或闭关提升修为；灵力不足时听泉静养。所有时间都由你的选择推进。'],['贰','修为圆满，尝试破境','修为满后消耗 20 灵力突破，凝神丹能提高成功率。失败保留八成修为，后续成功率逐次增加 10%。'],['叁','行万里路，求一线缘','进入山河历练，选择奇遇或迎战妖兽。战斗中可以普攻、御剑、防守回灵或遁走；服丹会消耗一回合。'],['肆','灵材炼丹，功法立身','采药与历练获得灵石灵材，在坊市购丹、藏经阁按路径与境界选择功法，每境每途十卷，最多兼修十本，支持封存与转修。行囊中三株凝露草可炼一枚聚气丹。'],['伍','八境问道，渡劫登仙','炼气、筑基、结丹、元婴、化神、炼虚、合体、大乘，每境统一分初期、中期、后期、圆满。大乘圆满后渡飞升天劫，踏入真仙，共需 '+TOTAL_BREAKTHROUGHS+' 次成功破境。']];
   steps.push(['陆','灵器护身，法宝随行','灵装法宝中可装备武器、法衣、佩饰与一件法宝。胜敌必得灵砂，可能掉装备；遗藏可能出法宝。灵砂与灵石可淬炼三次，法宝在战斗中使用，冷却三回合。'],['柒','仙魔妖途，道心自选','三途问道中首次择道免费。仙修擅回元，魔修擅爆发汲血，妖修擅体魄护盾。本命神通每场一次；改修需 100 灵石与一日，并卸下路径不符的专属法宝。最终结局随路径变化。']);
   steps.push(['捌','各境灵装，道纹相应','每个境界有武器、法衣、佩饰各一件，同境两件激活属性加成，三件再激活路径效果：仙修承受敌方回合后存活可回元，魔修额外汲血，妖修开战获得护盾。道纹和套装随改修转换；装备图鉴可查看三途效果，坊市可按境界选购。']);
   showDialog('修行指南', `<div class="dialog-eyebrow">A SMALL GUIDE FOR A LONG JOURNEY</div>${steps.map(([n,t,d])=>`<div class="guide-step"><span>${n}</span><div><h3>${t}</h3><p>${d}</p></div></div>`).join('')}<div class="warning-note">每次操作后自动保存在当前浏览器。跨设备游玩请导出存档，再于另一设备导入。无强制等待，无离线惩罚。</div>`, '<button class="btn primary" data-ui="close">心中有道，启程修行</button>');
@@ -261,6 +276,17 @@ document.addEventListener('click', event => {
     return;
   }
   switch (button.dataset.ui) {
+    case 'book-prev': bookPage=Math.max(0,bookPage-1);render();$('.manual-filters').scrollIntoView({block:'start'});break;
+    case 'book-next': bookPage++;render();$('.manual-filters').scrollIntoView({block:'start'});break;
+    case 'sealBook': {
+      const b=findManual(button.dataset.value||'');if(!b)break;
+      showDialog('封存功法',`<p>暂时停止兼修《${b.name}》，释放一个兼修位。第 ${state.books[b.id]} 重会永久保留，封存期间不提供效果。</p><div class="warning-note">换法不恢复气血或灵力，超过新上限的部分会被裁剪；之后恢复兼修需 ${10*(b.realm+1)} 灵石、8 灵力与一日。</div>`,actionButton('deactivateBook','确认封存',b.id,'primary'));break;
+    }
+    case 'switchBook': {
+      const b=findManual(button.dataset.value||'');if(!b)break;
+      const learned=(state.books[b.id]||0)>0,cost=learned?10*(b.realm+1):b.cost,energy=learned?8:12;
+      showDialog('择卷转修',`<div class="dialog-eyebrow">十卷相伴 · 道有所择</div><p>转入《${b.name}》 · ${learned?'恢复原有第 '+state.books[b.id]+' 重':'初学至第一重'}<br>消耗 ${cost} 灵石、${energy} 灵力与一日。</p><div class="warning-note">下列所选功法将封存，重数保留。只在转修成功时扣费和替换；换法不治疗，超过新上限的气血灵力会被裁剪。</div><p>请选择要转出的兼修功法：</p><div class="manual-switch-list">${state.activeBooks.map(id=>`<button class="choice-button" data-action="switchBook" data-value="${id}|${b.id}"${state.pending||state.stones<cost||state.energy<energy?' disabled':''}><strong>${findManual(id)!.name} · 第 ${state.books[id]} 重</strong><small>封存此卷，转修《${b.name}》</small></button>`).join('')}</div>`);break;
+    }
     case 'guide': showGuide(); break;
     case 'settings': showSettings(); break;
     case 'toggle-effects': setAnimationEnabled(!animationPreference().enabled);showSettings();break;
@@ -276,7 +302,7 @@ document.addEventListener('click', event => {
     case 'shopSet': gearRealm=button.dataset.value ?? 'current';shopSection='gear';setTab('shop');break;
     case 'choosePath': {
       const p=PATHS.find(p=>p.id===button.dataset.value);if(!p)break;
-      showDialog(state.path?'重立道心':'择道启程',`<div class="dialog-eyebrow">${p.name} · ${p.motto}</div><p>${p.passive}</p><p>本命神通「${p.skill}」：${p.skillDesc}</p><div class="warning-note">${state.path?'改修消耗 100 灵石与 1 日。保留全部进度和藏品，自动卸下路径不符的专属法宝。':'首次择道免费，保留全部现有进度。'}上限提升不恢复当前气血或灵力。</div>`,actionButton('choosePath','道心已定 · '+p.name,p.id,'primary'));
+      showDialog(state.path?'重立道心':'择道启程',`<div class="dialog-eyebrow">${p.name} · ${p.motto}</div><p>${p.passive}</p><p>本命神通「${p.skill}」：${p.skillDesc}</p><div class="warning-note">${state.path?'改修消耗 100 灵石与 1 日。保留全部进度和藏品，自动卸下路径不符的专属法宝，并封存异途功法（重数保留）。':'首次择道免费，保留全部现有进度。'}上限提升不恢复当前气血或灵力。</div>`,actionButton('choosePath','道心已定 · '+p.name,p.id,'primary'));
       break;
     }
     case 'export': exportSave(); break;
@@ -290,6 +316,7 @@ document.addEventListener('click', event => {
 });
 document.addEventListener('submit', event => {
   if(!(event.target instanceof HTMLFormElement))return;
+  if(event.target.id==='book-search'){event.preventDefault();bookSearch=$<HTMLInputElement>('#book-query').value.trim().slice(0,30);bookPage=0;render();$('#book-query').focus();return;}
   if (event.target.id !== 'name-form') return;
   event.preventDefault(); const name = $<HTMLInputElement>('#name-input').value.trim();
   if (!name) { toast('道号不可为空'); return; }
@@ -297,6 +324,7 @@ document.addEventListener('submit', event => {
 });
 document.addEventListener('change',event=>{
   if(!(event.target instanceof HTMLSelectElement))return;
+  if(event.target.dataset.bookFilter){const value=event.target.value;switch(event.target.dataset.bookFilter){case 'path':bookPath=value;break;case 'realm':bookRealm=value;break;case 'status':bookStatus=value;break;case 'type':bookType=value;break;}bookPage=0;const key=event.target.dataset.bookFilter;render();$(`[data-book-filter="${key}"]`).focus({preventScroll:true});return;}
   if(!event.target.matches('[data-gear-realm]'))return;
   const value=event.target.value;
   if(['current','all',...REALMS.map((_,i)=>String(i))].includes(value)){gearRealm=value;render();}

@@ -13,7 +13,7 @@ function legacy(s: GameState){const old=structuredClone(s) as unknown as Record<
 
 test('旧版存档无损迁移，基础装备不自动改变原属性',()=>{
   const old=legacy(createGame());old.day=53;old.xp=84;old.hp=65;old.stones=148;
-  const s=validateSave(old);assert.equal(s.version,4);assert.equal(s.day,53);assert.equal(s.xp,84);assert.equal(s.hp,65);assert.equal(s.stones,148);assert.equal(s.path,null);assert.equal(s.gear.bambooSword,0);assert.equal(s.artifacts.spiritBell,0);assert.equal(attributes(s).attack,14);assert.equal(old.version,1);
+  const s=validateSave(old);assert.equal(s.version,5);assert.equal(s.day,53);assert.equal(s.xp,84);assert.equal(s.hp,65);assert.equal(s.stones,148);assert.equal(s.path,null);assert.equal(s.gear.bambooSword,0);assert.equal(s.artifacts.spiritBell,0);assert.equal(attributes(s).attack,14);assert.equal(old.version,1);
   assert.deepEqual(validateSave(s),s);
 });
 test('旧版进行中的战斗迁移后仍可结算',()=>{

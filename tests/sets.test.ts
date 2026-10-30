@@ -70,5 +70,5 @@ test('改修自动转换已穿装备道纹与套装效果，保留物品和淬�
   run(s,'choosePath','yao');assert.equal(activeSet(s).name,'万象套装');assert.ok(activeSet(s).shield>0);assert.equal(activeSet(s).drain,0);assert.equal(s.hp,45);
 });
 test('存档保留物品 ID、强化等级、资源或战斗状态',()=>{
-  const s=equipped(2,'immortal');run(s,'upgradeGear','heavenSword');s.hp=100;s.energy=60;run(s,'explore','ruins');run(s,'guard');const old=JSON.parse(JSON.stringify(s));assert.deepEqual(validateSave(old),old);assert.equal(old.version,4);
+  const s=equipped(2,'immortal');run(s,'upgradeGear','heavenSword');s.hp=100;s.energy=60;run(s,'explore','ruins');run(s,'guard');const old=JSON.parse(JSON.stringify(s));assert.deepEqual(validateSave(old),old);assert.equal(old.version,5);
 });

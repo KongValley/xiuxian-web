@@ -3,6 +3,13 @@ export type Slot = 'weapon' | 'armor' | 'charm';
 export type Stat = 'attack' | 'defense' | 'hp' | 'energy';
 export type Bonus = Record<Stat, number>;
 export interface RealmPosition { realm: number; stage: number }
+export interface ManualEffects extends Bonus {
+  cultivation:number; chance:number; drain:number; heal:number; energyRegen:number; shield:number; skill:number;
+}
+export interface Manual {
+  id:string; name:string; type:string; grade:string; desc:string; cost:number; max:number;
+  realm:number; path:PathId|null; effects:Partial<ManualEffects>;
+}
 export interface ItemBase {
   id: string; name: string; mark: string; tier: number; realm: number; price: number;
   attack?: number; defense?: number; hp?: number; energy?: number; path?: PathId;
@@ -32,7 +39,7 @@ export interface LogEntry { day: number; type: string; text: string }
 export interface GameState extends RealmPosition {
   version: number; name: string; day: number; xp: number; hp: number; energy: number; stones: number;
   path: PathId | null; gear: Record<string, number>; artifacts: Record<string, number>;
-  equipped: Record<string, string | null>; dust: number; books: Record<string, number>;
+  equipped: Record<string, string | null>; dust: number; books: Record<string, number>; activeBooks:string[];
   items: Record<string, number>; focus: boolean; pity: number; stats: Record<string, number>;
   claimed: string[]; pending: Combat | Encounter | null; ended: boolean; logs: LogEntry[];
 }
