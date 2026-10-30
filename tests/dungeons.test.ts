@@ -79,7 +79,7 @@ test('山河令指定兑换任意本境法宝，越境、重复和缺令不扣�
 });
 test('进行中的副本、预警、候选洗练与自动配置可完整保存；v8旧战局无损迁移',()=>{
   const s=ready();run(s,'dungeonAutoStart','dungeon-0-0|5');run(s,'guard');assert.deepEqual(validateSave(JSON.parse(JSON.stringify(s))),s);
-  const old=createGame();old.version=8;act(old,'explore','bamboo',low);const pending=structuredClone(old.pending),original=structuredClone(old);const migrated=validateSave(old);assert.equal(migrated.version,9);assert.deepEqual(migrated.pending,pending);assert.deepEqual(migrated.expedition,createExpedition());assert.deepEqual(old,original);assert.equal(migrated.hp,100);
+  const old=createGame();old.version=8;act(old,'explore','bamboo',low);const pending=structuredClone(old.pending),original=structuredClone(old);const migrated=validateSave(old);assert.equal(migrated.version,10);assert.deepEqual(migrated.pending,pending);assert.deepEqual(migrated.expedition,createExpedition());assert.deepEqual(old,original);assert.equal(migrated.hp,100);
 });
 test('拒绝伪造首领、奖励记录、自动轮数、关卡、护盾和叠加机缘',()=>{
   const s=ready();run(s,'dungeonEnter','dungeon-0-0');

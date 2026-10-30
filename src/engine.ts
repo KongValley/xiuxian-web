@@ -7,6 +7,10 @@ import { ROOT_ACTIONS, actRoot, createRoots, gainRootEssence, rootEffects, valid
 import { AFFIX_ACTIONS, actAffix, affixBonus, affixSpecials, createReforge, gainReforgeShards, validateReforge } from './affixes.js';
 import { DUNGEON_ACTIONS, actDungeon, createExpedition, dungeonBonus, dungeonDefeat, dungeonEnemy, dungeonVictory, findDungeon, validateExpedition } from './dungeons.js';
 import { armorDamage, cultivationBase, enemyArmorDamage, potionRecovery, recovery } from './balance.js';
+import { GROWTH_ACTIONS, actGrowth, createGrowth, growthEffects, growthArtifactCost } from './growth.js';
+import { ART_SKILLS } from './growth-content.js';
+import { validateGrowth } from './growth-validation.js';
+import { growthAfterTurn, growthIncoming, growthSkill, useGrowthCharm } from './growth-combat.js';
 export { REALMS, STAGES } from './realms.js';
 export { BOOKS } from './manuals.js';
 export const ITEMS = [
@@ -30,7 +34,7 @@ export const QUESTS = [
   { id: 'ascend', title: '长生可期', desc: '成功突破九次境界', key: 'breaks', goal: 9, reward: 300 }
 ];
 export function createGame(name = '云归客'): GameState {
-  return { version: 9, expedition:createExpedition(), name: name.slice(0, 12), day: 1, realm: 0, stage: 0, xp: 0, hp: 100, energy: 100, stones: 88,
+  return { version: 10, growth:createGrowth(), expedition:createExpedition(), name: name.slice(0, 12), day: 1, realm: 0, stage: 0, xp: 0, hp: 100, energy: 100, stones: 88,
     path:null, roots:createRoots(), reforge:createReforge(), gear:{...STARTER_GEAR}, artifacts:{...STARTER_ARTIFACTS}, equipped:{weapon:null,armor:null,charm:null,artifact:null}, dust:0,
     books: { breath: 1, sword: 0, body: 0 }, activeBooks:['breath'], items: { qi: 2, heal: 2, focus: 0, herb: 3 }, focus: false, pity: 0,
     stats: { cultivates: 0, explores: 0, breaks: 0, wins: 0, studies: 0 }, claimed: [], pending: null, ended: false,
@@ -48,11 +52,12 @@ function calculateAttributes(s: GameState,rank: number) {
   const m=manualEffects(s);for(const k of Object.keys(bonus) as Stat[])bonus[k]+=m[k];
   const roots=rootEffects(s);for(const k of Object.keys(bonus) as Stat[])bonus[k]+=roots[k];
   const merit=dungeonBonus(s);for(const k of Object.keys(bonus) as Stat[])bonus[k]+=merit[k];
+  const growth=growthEffects(s);for(const k of Object.keys(bonus) as Stat[])bonus[k]+=growth.flat[k];
   return { maxHp: Math.round((100 + rank * 24 + bonus.hp)*(s.path==='yao'?1.25:1)), maxEnergy: 100 + s.realm * 10 + bonus.energy + (s.path==='immortal'?20:0), attack: Math.round((14 + rank * 6 + bonus.attack)*(s.path==='demon'?1.2:1)), defense: Math.max(0,Math.round(3 + rank * 2 + bonus.defense + (s.path==='yao'?3:s.path==='demon'?-2:0))), xpNeed: Math.round(100 * (1 + rank * 0.6)), chance: Math.min(100, 80 - s.realm * 5 + (s.focus ? 20 : 0) + s.pity * 10 + (s.path==='immortal'?5:0)+m.chance+roots.chance+affixSpecials(s).chance) };
 }
 export function endingLabel(s: GameState) { return PATHS.find(p=>p.id===s.path)?.ending || '羽化登仙'; }
 export function realmLabel(s: GameState) { return REALMS[s.realm] + ' · ' + (s.ended ? endingLabel(s) : stageLabel(s)); }
-export function cultivationRate(s: GameState) { return (1+manualEffects(s).cultivation)*(1+rootEffects(s).cultivation)*(1+affixSpecials(s).cultivation)*(s.path==='immortal'?1.15:1); }
+export function cultivationRate(s: GameState) { return (1+manualEffects(s).cultivation)*(1+rootEffects(s).cultivation)*(1+affixSpecials(s).cultivation)*(s.path==='immortal'?1.15:1)*(1+growthEffects(s).cultivation); }
 function clampVitals(s: GameState) { const a=attributes(s);s.hp=Math.min(s.hp,a.maxHp);s.energy=Math.min(s.energy,a.maxEnergy); }
 export function calendar(day: number) {
   return `道历${Math.floor((day - 1) / 360) + 1}年 · ${['春', '夏', '秋', '冬'][Math.floor(((day - 1) % 360) / 90)]} · 第${(day - 1) % 360 + 1}日`;
@@ -71,11 +76,12 @@ function dropLoot(s: GameState, catalog: EquipmentItem[]|ArtifactItem[], rng: Ra
 }
 function combatDamage(s: GameState, damage: number, label: string, rng: RandomSource, extraDrain=0) {
   if(s.pending?.kind!=='combat')return null;
-  const e=s.pending,a=attributes(s);
-  if(e.dungeon){const run=s.expedition.run!,d=findDungeon(run.id)!,def=dungeonEnemy(d,run.node).defense;damage=enemyArmorDamage(Math.round(damage*(1+run.might)),label==='你凝气出手'?def:def*.5);}
+  const e=s.pending,a=attributes(s),growth=growthEffects(s);
+  damage=Math.round(damage*(1+growth.damage+(s.expedition.run?.node===4?growth.bossDamage:0)));
+  if(e.dungeon){const run=s.expedition.run!,d=findDungeon(run.id)!,def=dungeonEnemy(d,run.node).defense;damage=enemyArmorDamage(Math.round(damage*(1+run.might)),(label==='你凝气出手'?def:def*.5)*(e.arts?.breakArmor ? .65 : 1)*(s.growth.natal.id===s.equipped.artifact&&s.growth.natal.branch==='pierce'&&ARTIFACTS.find(a=>a.id===s.equipped.artifact)?.skill===label ? .4 : 1));}
   const actual=Math.min(e.hp,damage);
   e.hp=Math.max(0,e.hp-damage);e.turns.push(`${label}，造成 ${damage} 点伤害。`);
-  const drain=(s.path==='demon'?.12:0)+extraDrain+(equippedSet(s)?.drain||0)+manualEffects(s).drain;
+  const drain=(s.path==='demon'?.12:0)+extraDrain+(equippedSet(s)?.drain||0)+manualEffects(s).drain+growth.drain;
   if(drain){const heal=Math.min(a.maxHp-s.hp,Math.round(actual*drain));s.hp+=heal;if(heal)e.turns.push(`汲取生机，气血 +${heal}。`);}
   if(e.hp>0)return null;
   if(e.dungeon)return dungeonVictory(s,rng,{attributes,gainXp,log});
@@ -97,10 +103,11 @@ function enemyAttack(s: GameState, rng: RandomSource, guard = false) {
     let raw=rand(rng,e.attack-2,e.attack+3)*(heavy?1.9:1);
     if(boss&&d.mechanic==='rage')raw*=1+Math.min(.35,(e.round-1)*.035);
     damage=armorDamage(raw,attributes(s).defense,d.realm,guard);
-    if(boss&&d.mechanic==='venom')damage+=Math.max(1,Math.round(attributes(s).maxHp*.02*(guard?.5:1)));
+    if(boss&&d.mechanic==='venom'&&!e.arts?.cleanse)damage+=Math.max(1,Math.round(attributes(s).maxHp*.02*(guard?.5:1)));
     if(heavy)e.turns.push(guard?'你守住心神，卸去首领蓄力重击。':'首领蓄力已满，重击骤然落下！');
     if(boss&&e.round%3===2)e.turns.push('【蓄力预警】下一轮首领施展重击，守心可大幅减伤！');
   }
+  damage=growthIncoming(s,damage);
   if(e.shield){const absorbed=Math.min(e.shield,damage);e.shield-=absorbed;damage-=absorbed;e.turns.push(`护盾吸收 ${absorbed} 点伤害。`);}
   e.artifactCooldown=Math.max(0,(e.artifactCooldown||0)-1);
   s.hp = Math.max(0, s.hp - damage);
@@ -125,18 +132,22 @@ function enemyAttack(s: GameState, rng: RandomSource, guard = false) {
   if(heal||energy){s.hp+=heal;s.energy+=energy;e.turns.push(`功法周天运转，气血 +${heal}，灵力 +${energy}。`);e.turns=e.turns.slice(-8);}
   const roots=rootEffects(s),rootHeal=Math.min(a.maxHp-s.hp,roots.heal,Math.floor(a.maxHp*.05)),rootEnergy=Math.min(a.maxEnergy-s.energy,roots.energyRegen);
   if(rootHeal||rootEnergy){s.hp+=rootHeal;s.energy+=rootEnergy;e.turns.push(`灵根生息，气血 +${rootHeal}，灵力 +${rootEnergy}。`);e.turns=e.turns.slice(-8);}
+  const companion=growthAfterTurn(s,a,guard);
+  if(companion.damage){const victory=combatDamage(s,companion.damage,companion.label,rng);if(victory)return victory;}
+  if(s.pending?.kind==='combat')s.pending.turns=s.pending.turns.slice(-8);
   return null;
 }
 export function act(s: GameState, action: string, payload?: string|null, rng: RandomSource = Math.random): ActionResult {
   payload ??= '';
+  if(GROWTH_ACTIONS.includes(action)){const result=actGrowth(s,action,payload);if(result.ok){clampVitals(s);log(s,result.message,'cultivate');}return result;}
   if(DUNGEON_ACTIONS.includes(action)){
     if(s.pending&&!['dungeonLeave','dungeonAutoStop','dungeonAutoBattle','dungeonAutoRest','dungeonAutoPotions'].includes(action))return fail('先完成当前战局。');
     return actDungeon(s,action,payload,{attributes,gainXp,log});
   }
-  if(s.expedition.run&&!['attack','skill','guard','flee','use','pathSkill','artifactSkill'].includes(action))return fail('先完成或撤离当前副本。');
+  if(s.expedition.run&&!['attack','skill','guard','flee','use','pathSkill','artifactSkill','growthSkill','growthCharm'].includes(action))return fail('先完成或撤离当前副本。');
   if(s.expedition.auto.repeat&&!s.expedition.run&&!['rest'].includes(action))return fail('自动刷本进行中，请先停止自动行动。');
   if (s.ended && !s.expedition.run && ![...ROOT_ACTIONS,...AFFIX_ACTIONS, 'use', 'sell', 'buy', 'study', 'activateBook', 'deactivateBook', 'switchBook', 'choosePath', 'rest', 'gather', 'claim', 'buyGear', 'buyArtifact', 'equip', 'equipArtifact', 'unequip', 'upgradeGear', 'upgradeArtifact'].includes(action)) return fail('你已证道长生。可以在设置中开启新一段仙途。');
-  if (s.pending && !['choice', 'attack', 'skill', 'guard', 'flee', 'use', 'pathSkill', 'artifactSkill'].includes(action)) return fail('先完成眼前的机缘，再继续仙途。');
+  if (s.pending && !['choice', 'attack', 'skill', 'guard', 'flee', 'use', 'pathSkill', 'artifactSkill','growthSkill','growthCharm'].includes(action)) return fail('先完成眼前的机缘，再继续仙途。');
   if(ROOT_ACTIONS.includes(action)){const result=actRoot(s,action,payload);if(result.ok){clampVitals(s);log(s,result.message,'cultivate');}return result;}
   if(AFFIX_ACTIONS.includes(action)){const result=actAffix(s,action,payload,rng);if(result.ok){clampVitals(s);log(s,result.message,'cultivate');}return result;}
   const a = attributes(s);
@@ -217,13 +228,18 @@ export function act(s: GameState, action: string, payload?: string|null, rng: Ra
       else {
         if (action === 'skill' && s.energy < 12) return fail('御剑一击需要 12 点灵力。');
         const isSkill = action === 'skill'; if (isSkill) s.energy -= 12;
-        const damage = Math.round(rand(rng, a.attack - 2, a.attack + 4) * (isSkill ? 1.8 + manualEffects(s).skill + rootEffects(s).skill : 1));
+        const damage = Math.round(rand(rng, a.attack - 2, a.attack + 4) * (isSkill ? 1.8 + manualEffects(s).skill + rootEffects(s).skill + growthEffects(s).skill : 1));
         const victory=combatDamage(s,damage,isSkill?'御剑一击，剑气如虹':'你凝气出手',rng);
         if(victory){message=victory;break;}
       }
       message = enemyAttack(s, rng, action === 'guard') || '剑意未歇，战局仍在继续';
       if (s.pending) s.pending.turns = s.pending.turns.slice(-8);
       break;
+    }
+    case 'growthSkill': case 'growthCharm': {
+      const result=action==='growthSkill'?growthSkill(s,payload,a):useGrowthCharm(s,payload,a);if(!result.ok)return result;
+      if(result.damage){const victory=combatDamage(s,result.damage,result.label||result.message,rng);if(victory){message=victory;break;}}
+      message=enemyAttack(s,rng)||result.message;break;
     }
     case 'pathSkill': case 'artifactSkill': {
       if(s.pending?.kind!=='combat')return fail('神通与法宝只可在战斗中施展。');
@@ -236,19 +252,20 @@ export function act(s: GameState, action: string, payload?: string|null, rng: Ra
         if(s.path==='demon'&&(s.hp<=Math.ceil(a.maxHp*.12)||s.energy<10))return fail('血焰斩需要 10 灵力，且气血必须高于上限的 12%。');
         if(s.path==='yao'&&s.energy<14)return fail('妖魂咆哮需要 14 灵力。');
         e.pathUsed=true;label=p.skill;
-        if(s.path==='immortal'){const h=Math.min(a.maxHp-s.hp,Math.round(a.maxHp*.3)),n=Math.min(a.maxEnergy-s.energy,18);s.hp+=h;s.energy+=n;e.turns.push(`太清回元，气血 +${h}，灵力 +${n}。`);}
+        if(s.path==='immortal'){const h=Math.min(a.maxHp-s.hp,Math.round(a.maxHp*.3*(1+growthEffects(s).healing))),n=Math.min(a.maxEnergy-s.energy,18);s.hp+=h;s.energy+=n;e.turns.push(`太清回元，气血 +${h}，灵力 +${n}。`);}
         if(s.path==='demon'){const h=Math.ceil(a.maxHp*.12);s.hp-=h;s.energy-=10;damage=Math.round(a.attack*3);e.turns.push(`燃血 ${h}，唤起血焰。`);}
         if(s.path==='yao'){s.energy-=14;damage=Math.round(a.attack*2);e.shield=Math.max(e.shield,Math.round(a.maxHp*.2));e.turns.push(`山海护体，护盾提升至 ${e.shield}。`);}
       }else{
         const item=ARTIFACTS.find(i=>i.id===s.equipped.artifact);
         if(!item)return fail('请先在灵装法宝中装备法宝。');
         if(e.artifactCooldown>0)return fail(`法宝尚需冷却 ${e.artifactCooldown} 回合。`);
-        if(s.energy<item.cost)return fail(`催动${item.name}需要 ${item.cost} 灵力。`);
-        s.energy-=item.cost;e.artifactCooldown=4;label=item.skill;
+        const cost=growthArtifactCost(s,item.cost);
+        if(s.energy<cost)return fail(`催动${item.name}需要 ${cost} 灵力。`);
+        s.energy-=cost;e.artifactCooldown=s.growth.training.spirit>=12?3:4;label=item.skill;
         const power=artifactPower(item,s,s.artifacts[item.id]);
-        damage=Math.round(a.attack*power.damage);
+        damage=Math.round(a.attack*power.damage*(s.growth.natal.id===item.id&&s.growth.natal.branch==='echo'?1.12:1));
         if(power.shield||power.shieldFlat){e.shield=Math.max(e.shield,Math.min(a.maxHp,Math.round(a.maxHp*power.shield+power.shieldFlat)));e.turns.push(`法宝护持，护盾提升至 ${e.shield}。`);}
-        if(power.heal){const h=Math.min(a.maxHp-s.hp,Math.round(a.maxHp*power.heal));s.hp+=h;e.turns.push(`${item.skill}，气血 +${h}。`);}
+        if(power.heal){const h=Math.min(a.maxHp-s.hp,Math.round(a.maxHp*power.heal*(1+growthEffects(s).healing)));s.hp+=h;e.turns.push(`${item.skill}，气血 +${h}。`);}
         if(power.restore){const n=Math.min(a.maxEnergy-s.energy,power.restore);s.energy+=n;e.turns.push(`宝中灵气回流，灵力 +${n}。`);}
         extraDrain=power.drain;
       }
@@ -261,6 +278,7 @@ export function act(s: GameState, action: string, payload?: string|null, rng: Ra
       if(s.path&&s.stones<100)return fail('改修需要 100 灵石。首次入道免费。');
       if(s.path){s.stones-=100;s.day++;}
       s.path=p.id;
+      s.growth.arts.equipped=s.growth.arts.equipped.filter(id=>{const skill=ART_SKILLS.find(a=>a.id===id);return !skill?.path||skill.path===s.path;});
       s.activeBooks=s.activeBooks.filter(id=>{const b=findManual(id);return !b?.path||b.path===s.path;});
       clampVitals(s);log(s,`立下道心，踏上${p.name}之路：${p.motto}。`,'story');message=`已踏入${p.name}之道`;break;
     }
@@ -308,7 +326,7 @@ export function act(s: GameState, action: string, payload?: string|null, rng: Ra
       const item = ITEMS.find(x => x.id === payload); if (!item || payload === 'herb' || !s.items[payload]) return fail('行囊中没有此丹药。');
       if(s.expedition.run&&!s.pending)return fail('整备请使用灵泉营地，或在战斗中服丹。');
       if (payload === 'qi') { if (s.energy >= a.maxEnergy) return fail('灵力充盈，暂时无需服丹。'); const n = Math.min(potionRecovery('qi',a.maxHp,a.maxEnergy), a.maxEnergy - s.energy); s.energy += n; message = `聚气丹入腹 · 灵力 +${n}`; }
-      if (payload === 'heal') { if (s.hp >= a.maxHp) return fail('气血充盈，暂时无需服丹。'); const n = Math.min(potionRecovery('heal',a.maxHp,a.maxEnergy), a.maxHp - s.hp); s.hp += n; message = `药力化开 · 气血 +${n}`; }
+      if (payload === 'heal') { if (s.hp >= a.maxHp) return fail('气血充盈，暂时无需服丹。'); const n = Math.min(Math.round(potionRecovery('heal',a.maxHp,a.maxEnergy)*(1+growthEffects(s).healing)), a.maxHp - s.hp); s.hp += n; message = `药力化开 · 气血 +${n}`; }
       if (payload === 'focus') { if (s.focus) return fail('凝神之效尚在，下次突破生效。'); if (s.pending) return fail('凝神丹需在洞府静心服用。'); s.focus = true; message = '心神澄澈 · 下次突破成功率 +20%'; }
       s.items[payload]--; log(s, message, 'rest');
       if (s.pending?.kind === 'combat') { s.pending.turns.push(message); message = enemyAttack(s, rng) || message; }
@@ -322,6 +340,7 @@ export function act(s: GameState, action: string, payload?: string|null, rng: Ra
     case 'study': {
       const b = findManual(payload); if (!b) return fail('未寻得此功法。');
       if(b.realm>s.realm)return fail(`此功法需${REALMS[b.realm]}境界。`);
+      if(b.sect&&!s.books[b.id]&&(s.growth.sect.id!==b.sect||s.growth.sect.rank<1))return fail('此传承需对应宗门内门身份，已学重数可永久保留。');
       if(b.path&&b.path!==s.path)return fail('请先选择对应的修行路径。');
       const level = s.books[b.id]||0, cost = b.cost * (level + 1),active=s.activeBooks.includes(b.id);
       if(!active&&level)return fail('此功法已封存，请先纳入兼修或转修。');
@@ -346,6 +365,7 @@ export function act(s: GameState, action: string, payload?: string|null, rng: Ra
       if(action==='switchBook'&&!s.activeBooks.includes(outgoing))return fail('请选择当前兼修的功法作为转出对象。');
       if(action==='activateBook'&&s.activeBooks.length>=MAX_ACTIVE_BOOKS)return fail('兼修已满十本，请选择转修。');
       const learned=(s.books[b.id]||0)>0;
+      if(!learned&&b.sect&&(s.growth.sect.id!==b.sect||s.growth.sect.rank<1))return fail('初学此卷需要对应宗门内门身份。');
       if(!learned&&action==='activateBook')return fail('请先领悟此功法。');
       const cost=learned?10*(b.realm+1):b.cost,energy=learned?8:12;
       if(s.stones<cost||s.energy<energy)return fail(`转修需 ${cost} 灵石、${energy} 灵力与 1 日。`);
@@ -363,8 +383,9 @@ export function act(s: GameState, action: string, payload?: string|null, rng: Ra
   return { ok: true, message };
 }
 export function validateSave(value: unknown): GameState {
-  if (!value || typeof value!=='object' || !('version' in value) || ![1,2,3,4,5,6,7,8,9].includes(value.version as number)) throw new Error('存档版本不兼容');
+  if (!value || typeof value!=='object' || !('version' in value) || ![1,2,3,4,5,6,7,8,9,10].includes(value.version as number)) throw new Error('存档版本不兼容');
   const s = structuredClone(value) as GameState;
+  if(s.version<10){s.growth=createGrowth();if(s.pending?.kind==='combat')delete s.pending.arts;}else validateGrowth(s);
   if(s.version<9)s.expedition=createExpedition();else validateExpedition(s);
   const legacy=s.version<3;
   const layered=s.version===3;
@@ -380,7 +401,7 @@ export function validateSave(value: unknown): GameState {
   const oldBooks=s.version<5;
   if(!s.books||typeof s.books!=='object'||Array.isArray(s.books))throw new Error('功法数据无效');
   for (const b of FOUNDATION_BOOKS) if (!Number.isInteger(s.books[b.id]) || s.books[b.id]<0 || s.books[b.id]>b.max)throw new Error('功法数据无效');
-  for(const [id,level]of Object.entries(s.books)){const b=findManual(id);if(!b||oldBooks&&b.path||!Number.isInteger(level)||level<0||level>b.max||!oldBooks&&b.realm>s.realm&&level>0)throw new Error('功法数据无效');}
+  for(const [id,level]of Object.entries(s.books)){const b=findManual(id);if(!b||s.version<10&&b.sect&&level>0||oldBooks&&b.path||!Number.isInteger(level)||level<0||level>b.max||!oldBooks&&b.realm>s.realm&&level>0)throw new Error('功法数据无效');}
   if(oldBooks)s.activeBooks=FOUNDATION_BOOKS.filter(b=>s.books[b.id]>0).map(b=>b.id);
   if(!Array.isArray(s.activeBooks)||s.activeBooks.length>MAX_ACTIVE_BOOKS||new Set(s.activeBooks).size!==s.activeBooks.length||s.activeBooks.some(id=>{const b=findManual(id);return !b||!(s.books[id]>0)||b.realm>s.realm||!!b.path&&b.path!==s.path;}))throw new Error('兼修功法无效');
   for (const i of ITEMS) if (!Number.isInteger(s.items?.[i.id]) || s.items[i.id] < 0 || s.items[i.id] > 1000000) throw new Error('行囊数据无效');
@@ -431,7 +452,7 @@ export function validateSave(value: unknown): GameState {
     clampVitals(s);
     if(s.pending?.kind==='combat')s.pending.shield=Math.min(s.pending.shield,attributes(s).maxHp);
   }
-  s.version=9;
+  s.version=10;
   clampVitals(s);
   return s;
 }

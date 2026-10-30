@@ -11,8 +11,8 @@ function unchanged(s:GameState,action:string,payload?:string){const before=struc
 function learn(s:GameState,id:string){s.energy=attributes(s).maxEnergy;run(s,'study',id);}
 
 test('九境三途各有十本原创功法，ID、标题唯一且五重可达',()=>{
-  assert.equal(MANUALS.length,270);assert.equal(BOOKS.length,273);
-  assert.equal(new Set(BOOKS.map(b=>b.id)).size,273);assert.equal(new Set(BOOKS.map(b=>b.name)).size,273);
+  assert.equal(MANUALS.length,270);assert.equal(BOOKS.length,276);
+  assert.equal(new Set(BOOKS.map(b=>b.id)).size,276);assert.equal(new Set(BOOKS.map(b=>b.name)).size,276);
   for(const path of paths)for(let realm=0;realm<9;realm++){
     const books=MANUALS.filter(b=>b.path===path&&b.realm===realm),s=ready(path,realm);run(s,'deactivateBook','breath');
     assert.equal(books.length,10);
@@ -83,7 +83,7 @@ test('v4 存档迁移不损失三卷重数、属性、战局，迁移不改原�
   const old=ready();old.version=4;old.books={breath:4,sword:3,body:2};old.hp=77;old.energy=62;old.activeBooks=[];
   old.pending={kind:'combat',region:'bamboo',name:'山间灵狼',hp:35,maxHp:48,attack:11,shield:0,pathUsed:false,artifactCooldown:2,turns:['旧战局。']};
   const original=structuredClone(old),before=attributes(old),migrated=validateSave(old);
-  assert.deepEqual(old,original);assert.equal(migrated.version,9);assert.deepEqual(migrated.books,old.books);assert.deepEqual(migrated.activeBooks,['breath','sword','body']);
+  assert.deepEqual(old,original);assert.equal(migrated.version,10);assert.deepEqual(migrated.books,old.books);assert.deepEqual(migrated.activeBooks,['breath','sword','body']);
   assert.deepEqual(attributes(migrated),before);assert.equal(migrated.hp,77);assert.equal(migrated.energy,62);assert.deepEqual(validateSave(migrated),migrated);
   assert.deepEqual(migrated.pending,old.pending);
 });

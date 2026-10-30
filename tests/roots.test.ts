@@ -99,7 +99,7 @@ test('v6旧档补充未觉醒灵根，不更改原属性、战斗、材料、功
   const s=createGame();s.version=6;s.realm=3;s.stage=2;s.path='demon';s.artifacts['treasure-3-9']=2;s.equipped.artifact='treasure-3-9';s.hp=99;s.energy=78;
   s.pending={kind:'combat',region:'sea',name:'沧海蛟影',hp:400,maxHp:590,attack:70,shield:12,pathUsed:true,artifactCooldown:2,turns:['旧局仍在。']};
   const before=attributes(s),raw=structuredClone(s);delete (raw as Partial<GameState>).roots;const original=structuredClone(raw),loaded=validateSave(raw);
-  assert.equal(loaded.version,9);assert.deepEqual(loaded.roots,createRoots());assert.deepEqual(attributes(loaded),before);assert.equal(loaded.hp,99);assert.equal(loaded.energy,78);assert.deepEqual(loaded.pending,raw.pending);assert.deepEqual(loaded.artifacts,raw.artifacts);assert.deepEqual(loaded.books,raw.books);assert.deepEqual(raw,original);assert.deepEqual(validateSave(loaded),loaded);
+  assert.equal(loaded.version,10);assert.deepEqual(loaded.roots,createRoots());assert.deepEqual(attributes(loaded),before);assert.equal(loaded.hp,99);assert.equal(loaded.energy,78);assert.deepEqual(loaded.pending,raw.pending);assert.deepEqual(loaded.artifacts,raw.artifacts);assert.deepEqual(loaded.books,raw.books);assert.deepEqual(raw,original);assert.deepEqual(validateSave(loaded),loaded);
 });
 
 test('拒绝伪造品阶、越级培养、非法纯度、主灵根与材料',()=>{

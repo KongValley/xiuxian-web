@@ -83,7 +83,7 @@ test('洗练石有稳定获取途径，材料购买不额外推进时间',()=>{
 
 test('v7灵根进度无损迁移，旧装备无词条，待选词条与锁定严格校验',()=>{
   const old=rich();old.version=7;old.roots={primary:'wood',levels:{metal:0,wood:3,water:0,fire:0,earth:0},tier:0,purity:20,essence:17,dew:2};const snapshot=structuredClone(old),loaded=validateSave(old);
-  assert.deepEqual(loaded.roots,old.roots);assert.deepEqual(loaded.reforge,createReforge());assert.deepEqual(old,snapshot);assert.equal(loaded.version,9);
+  assert.deepEqual(loaded.roots,old.roots);assert.deepEqual(loaded.reforge,createReforge());assert.deepEqual(old,snapshot);assert.equal(loaded.version,10);
   const s=rich();run(s,'reforgeRoll',sword.id);run(s,'reforgeAccept');run(s,'reforgeLock',sword.id+'|0');run(s,'reforgeRoll',sword.id,()=>.999);
   const base=structuredClone(s),lines=s.reforge.records[sword.id];
   const invalid=[undefined,{...s.reforge,shards:-1},{...s.reforge,records:{missing:lines}},{...s.reforge,records:{...s.reforge.records,[sword.id]:[lines[0],lines[0],lines[2]]}},{...s.reforge,records:{[sword.id]:[{...lines[0],grade:6},lines[1],lines[2]]}},{...s.reforge,records:{[sword.id]:[{...lines[0],value:999999},lines[1],lines[2]]}},{...s.reforge,locks:{[sword.id]:[0,1,2]}},{...s.reforge,pending:{itemId:'missing',lines}},{...s.reforge,pending:{itemId:sword.id,lines:[{...lines[0],value:lines[0].value+1},lines[1],lines[2]]}}];

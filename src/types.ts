@@ -17,6 +17,7 @@ export interface ManualEffects extends Bonus {
 export interface Manual {
   id:string; name:string; type:string; grade:string; desc:string; cost:number; max:number;
   realm:number; path:PathId|null; effects:Partial<ManualEffects>;
+  sect?:string;
 }
 export interface ItemBase {
   id: string; name: string; mark: string; tier: number; realm: number; price: number;
@@ -43,6 +44,23 @@ export interface Combat {
   kind: 'combat'; region: string; name: string; hp: number; maxHp: number; attack: number;
   shield: number; pathUsed: boolean; artifactCooldown: number; turns: string[];
   dungeon?: true; round?: number;
+  arts?: {cooldowns:Record<string,number>;round:number;breakArmor:number;weaken:number;talismans:number;cleanse:number};
+}
+export type Profession='alchemy'|'smith'|'talisman'|'array';
+export type GrowthMaterial='jade'|'timber'|'ore'|'seed'|'moonleaf'|'firefruit'|'egg'|'blueprint'|'tonic'|'boltCharm'|'wardCharm'|'cleanseCharm'|'swordArray'|'wardArray'|'springArray';
+export type AutoCondition='always'|'hp50'|'boss'|'heavy'|'energy30';
+export interface PetProgress {level:number;bond:number;evolution:number;skill:'instinct'|'guard'}
+export interface GrowthState {
+  inventory:Record<GrowthMaterial,number>;
+  natal:{id:string|null;bond:number;spirit:number;branch:'pierce'|'echo'|'ward'|null;trials:number;trial:{realm:number;bosses:number}|null};
+  arts:{talents:Record<string,number>;learned:string[];equipped:string[];conditions:Record<string,AutoCondition>};
+  estate:{vein:number;garden:number;alchemy:number;forge:number;plots:Array<{plant:string;mode:'yield'|'quality'|'rare';planted:number;ready:number}|null>};
+  crafts:{xp:Record<Profession,number>;primary:Profession[];recipes:string[]};
+  pets:{owned:Record<string,PetProgress>;active:string|null};
+  training:{body:number;spirit:number};
+  sect:{id:string|null;rank:number;merit:number;reputation:number;mentor:string|null;favor:Record<string,number>;task:{realm:number;progress:number}|null;facilities:Record<string,number>};
+  fate:{choices:Record<string,'vow'|'seek'|'valor'>;equipped:string[]};
+  prepared:GrowthMaterial|null;activePreparation:GrowthMaterial|null;
 }
 export type DungeonMechanic='storm'|'venom'|'vampire'|'rage'|'ward';
 export interface DungeonRun {id:string;node:number;phase:'ready'|'combat'|'choice'|'camp';might:number;ward:number;spoils:number;rounds:number;started:number}
@@ -61,6 +79,7 @@ export interface GameState extends RealmPosition {
   roots:SpiritRoots;
   reforge:ReforgeState;
   expedition:ExpeditionState;
+  growth:GrowthState;
   equipped: Record<string, string | null>; dust: number; books: Record<string, number>; activeBooks:string[];
   items: Record<string, number>; focus: boolean; pity: number; stats: Record<string, number>;
   claimed: string[]; pending: Combat | Encounter | null; ended: boolean; logs: LogEntry[];

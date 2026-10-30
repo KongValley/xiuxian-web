@@ -85,7 +85,12 @@ export const MANUALS:Manual[]=(Object.keys(titles) as PathId[]).flatMap(path=>ti
   const [type,effect,desc]=profiles[path][index];
   return {id:`${path}-${realm}-${index}`,name,type,grade:REALMS[realm],realm,path,desc,cost:(realm+1)*(realm+1)*18+index*3,max:5,effects:effect(realm+1)};
 })));
-export const BOOKS:Manual[]=[...FOUNDATION_BOOKS,...MANUALS];
+export const SECT_BOOKS:Manual[]=[
+  {id:'sect-cloud-book',name:'青云分光经',type:'宗门传承',grade:'真传',realm:2,path:null,sect:'cloud',desc:'青云宗内门传承。剑分流云，兼修后强化攻击与御剑。',cost:90,max:5,effects:{attack:3,skill:.025}},
+  {id:'sect-pill-book',name:'丹霞养元经',type:'宗门传承',grade:'真传',realm:2,path:null,sect:'pill',desc:'丹霞谷内门传承。丹气养元，长线回生并温养灵府。',cost:90,max:5,effects:{heal:1,energy:3,cultivation:.02}},
+  {id:'sect-beast-book',name:'万灵同契经',type:'宗门传承',grade:'真传',realm:2,path:null,sect:'beast',desc:'万兽山内门传承。万灵共生，增强体魄与开战护盾。',cost:90,max:5,effects:{hp:12,shield:.01}}
+];
+export const BOOKS:Manual[]=[...FOUNDATION_BOOKS,...MANUALS,...SECT_BOOKS];
 const byId=new Map(BOOKS.map(b=>[b.id,b]));
 export function findManual(id:string):Manual|undefined{return byId.get(id);}
 export function manualEffects(s:GameState):ManualEffects {
