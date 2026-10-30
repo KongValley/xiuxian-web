@@ -16,8 +16,11 @@ export interface ItemBase {
   desc: string;
 }
 export interface EquipmentItem extends ItemBase { slot: Slot }
-export type ArtifactEffect = 'bell' | 'blast' | 'heal' | 'pure' | 'drain' | 'seal';
-export interface ArtifactItem extends ItemBase { slot?: never; cost: number; skill: string; effect: ArtifactEffect }
+export type ArtifactEffect = 'bell' | 'blast' | 'heal' | 'pure' | 'drain' | 'seal' | 'sword' | 'ward' | 'spring' | 'tide';
+export interface ArtifactPower { damage:number; heal:number; restore:number; shield:number; shieldFlat:number; drain:number }
+export interface ArtifactItem extends Omit<ItemBase,'path'> {
+  path?:never; slot?: never; cost: number; skill: string; effect: ArtifactEffect; power:ArtifactPower;
+}
 export type SpiritItem = EquipmentItem | ArtifactItem;
 export interface CultivationPath {
   id: PathId; name: string; mark: string; motto: string; desc: string; passive: string;

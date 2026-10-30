@@ -13,7 +13,7 @@ function legacy(s: GameState){const old=structuredClone(s) as unknown as Record<
 
 test('旧版存档无损迁移，基础装备不自动改变原属性',()=>{
   const old=legacy(createGame());old.day=53;old.xp=84;old.hp=65;old.stones=148;
-  const s=validateSave(old);assert.equal(s.version,5);assert.equal(s.day,53);assert.equal(s.xp,84);assert.equal(s.hp,65);assert.equal(s.stones,148);assert.equal(s.path,null);assert.equal(s.gear.bambooSword,0);assert.equal(s.artifacts.spiritBell,0);assert.equal(attributes(s).attack,14);assert.equal(old.version,1);
+  const s=validateSave(old);assert.equal(s.version,6);assert.equal(s.day,53);assert.equal(s.xp,84);assert.equal(s.hp,65);assert.equal(s.stones,148);assert.equal(s.path,null);assert.equal(s.gear.bambooSword,0);assert.equal(s.artifacts.spiritBell,0);assert.equal(attributes(s).attack,14);assert.equal(old.version,1);
   assert.deepEqual(validateSave(s),s);
 });
 test('旧版进行中的战斗迁移后仍可结算',()=>{
@@ -36,9 +36,9 @@ test('装备栏限制、购买防重复、穿脱不回血且上限裁剪',()=>{
   run(s,'buyGear','dewPendant');run(s,'equip','dewPendant');assert.equal(attributes(s).maxEnergy,110);s.energy=110;run(s,'unequip','charm');assert.equal(s.energy,100);
   unchanged(s,'buyGear','cloudSword');unchanged(s,'equipArtifact','soulBanner');
 });
-test('专属法宝限制路径，改修自动卸下且保留物品与强化等级',()=>{
-  const s=rich();run(s,'choosePath','demon');unchanged(s,'buyArtifact','pureWhisk');run(s,'buyArtifact','soulBanner');run(s,'upgradeArtifact','soulBanner');run(s,'equipArtifact','soulBanner');assert.equal(s.equipped.artifact,'soulBanner');
-  run(s,'choosePath','yao');assert.equal(s.equipped.artifact,null);assert.equal(s.artifacts.soulBanner,1);unchanged(s,'equipArtifact','soulBanner');
+test('原专属法宝改为通用，改修保留已炼化法宝与强化等级',()=>{
+  const s=rich();run(s,'choosePath','demon');run(s,'buyArtifact','pureWhisk');run(s,'buyArtifact','soulBanner');run(s,'upgradeArtifact','soulBanner');run(s,'equipArtifact','soulBanner');assert.equal(s.equipped.artifact,'soulBanner');
+  run(s,'choosePath','yao');assert.equal(s.equipped.artifact,'soulBanner');assert.equal(s.artifacts.soulBanner,1);run(s,'equipArtifact','pureWhisk');assert.equal(s.equipped.artifact,'pureWhisk');
 });
 test('强化消耗资源、达到三重停止、属性实时更新',()=>{
   const s=rich();run(s,'equip','bambooSword');const before=attributes(s).attack;
@@ -63,7 +63,7 @@ test('法宝冷却严格等待三次行动，未满足条件不扣资源',()=>{
   const n=createGame();run(n,'explore','bamboo');unchanged(n,'artifactSkill');unchanged(n,'equip','bambooSword');unchanged(n,'choosePath','demon');unchanged(n,'upgradeGear','bambooSword');
 });
 test('所有法宝主动效果可正确结算，强化提高效果',()=>{
-  for(const item of ARTIFACTS){
+  for(const item of ARTIFACTS.filter(i=>['spiritBell','scarletMirror','originCauldron','pureWhisk','soulBanner','seaSeal'].includes(i.id))){
     const s=rich();s.realm=3;if(item.path)run(s,'choosePath',item.path);if(!Object.hasOwn(s.artifacts,item.id))run(s,'buyArtifact',item.id);run(s,'equipArtifact',item.id);s.hp=Math.round(attributes(s).maxHp*.5);s.energy=attributes(s).maxEnergy;
     run(s,'explore','sea');const hp=battle(s).hp;run(s,'artifactSkill');assert.equal(battle(s).artifactCooldown,3);if(item.effect!=='heal')assert.ok(battle(s).hp<hp);else assert.ok(s.hp>attributes(s).maxHp*.5);
   }

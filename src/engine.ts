@@ -2,6 +2,7 @@ import { PATHS, SLOTS, EQUIPMENT, ARTIFACTS, STARTER_GEAR, STARTER_ARTIFACTS, ge
 import { REALMS, STAGES, FINAL_REALM, stageCount, stageLabel, growthRank, isAscension } from './realms.js';
 import type { ActionResult, Bonus, EquipmentItem, ArtifactItem, GameState, RandomSource, Stat } from './types.js';
 import { BOOKS, FOUNDATION_BOOKS, MAX_ACTIVE_BOOKS, findManual, manualEffects } from './manuals.js';
+import { artifactPower, LEGACY_ARTIFACT_IDS } from './artifacts.js';
 export { REALMS, STAGES } from './realms.js';
 export { BOOKS } from './manuals.js';
 export const ITEMS = [
@@ -25,7 +26,7 @@ export const QUESTS = [
   { id: 'ascend', title: '长生可期', desc: '成功突破九次境界', key: 'breaks', goal: 9, reward: 300 }
 ];
 export function createGame(name = '云归客'): GameState {
-  return { version: 5, name: name.slice(0, 12), day: 1, realm: 0, stage: 0, xp: 0, hp: 100, energy: 100, stones: 88,
+  return { version: 6, name: name.slice(0, 12), day: 1, realm: 0, stage: 0, xp: 0, hp: 100, energy: 100, stones: 88,
     path:null, gear:{...STARTER_GEAR}, artifacts:{...STARTER_ARTIFACTS}, equipped:{weapon:null,armor:null,charm:null,artifact:null}, dust:0,
     books: { breath: 1, sword: 0, body: 0 }, activeBooks:['breath'], items: { qi: 2, heal: 2, focus: 0, herb: 3 }, focus: false, pity: 0,
     stats: { cultivates: 0, explores: 0, breaks: 0, wins: 0, studies: 0 }, claimed: [], pending: null, ended: false,
@@ -37,7 +38,7 @@ function calculateAttributes(s: GameState,rank: number) {
   for(const id of Object.values(s.equipped || {})) {
     if(!id)continue;
     const item=[...EQUIPMENT,...ARTIFACTS].find(x=>x.id===id);
-    if(item){const b=gearBonus(item,(s.gear?.[id] ?? s.artifacts?.[id]) || 0,s.path);for(const k of Object.keys(bonus) as Stat[])bonus[k]+=b[k];}
+    if(item){const b=gearBonus(item,(s.gear?.[id] ?? s.artifacts?.[id]) || 0,s.path,s.version>=6?s:undefined);for(const k of Object.keys(bonus) as Stat[])bonus[k]+=b[k];}
   }
   const set=equippedSet(s);if(set)for(const [k,v]of Object.entries(set.bonus))bonus[k as Stat]+=v;
   const m=manualEffects(s);for(const k of Object.keys(bonus) as Stat[])bonus[k]+=m[k];
@@ -209,13 +210,12 @@ export function act(s: GameState, action: string, payload?: string|null, rng: Ra
         if(e.artifactCooldown>0)return fail(`法宝尚需冷却 ${e.artifactCooldown} 回合。`);
         if(s.energy<item.cost)return fail(`催动${item.name}需要 ${item.cost} 灵力。`);
         s.energy-=item.cost;e.artifactCooldown=4;label=item.skill;
-        const scale=1+s.artifacts[item.id]*.2, effect=item.effect;
-        const multiplier={bell:1.8,blast:2.8,pure:2.2,drain:2.5,seal:2,heal:0}[effect];
-        damage=Math.round(a.attack*multiplier*scale);
-        if(effect==='bell'||effect==='seal'){e.shield=Math.max(e.shield,Math.min(a.maxHp,Math.round((effect==='bell'?12:a.maxHp*.25)*scale)));e.turns.push(`法宝护持，护盾提升至 ${e.shield}。`);}
-        if(effect==='pure'||effect==='heal'){const h=Math.min(a.maxHp-s.hp,Math.round(a.maxHp*(effect==='pure'?.2:.4)*scale));s.hp+=h;e.turns.push(`${item.skill}，气血 +${h}。`);}
-        if(effect==='heal'){const n=Math.min(a.maxEnergy-s.energy,12);s.energy+=n;e.turns.push(`鼎中灵气回流，灵力 +${n}。`);}
-        if(effect==='drain')extraDrain=.3;
+        const power=artifactPower(item,s,s.artifacts[item.id]);
+        damage=Math.round(a.attack*power.damage);
+        if(power.shield||power.shieldFlat){e.shield=Math.max(e.shield,Math.min(a.maxHp,Math.round(a.maxHp*power.shield+power.shieldFlat)));e.turns.push(`法宝护持，护盾提升至 ${e.shield}。`);}
+        if(power.heal){const h=Math.min(a.maxHp-s.hp,Math.round(a.maxHp*power.heal));s.hp+=h;e.turns.push(`${item.skill}，气血 +${h}。`);}
+        if(power.restore){const n=Math.min(a.maxEnergy-s.energy,power.restore);s.energy+=n;e.turns.push(`宝中灵气回流，灵力 +${n}。`);}
+        extraDrain=power.drain;
       }
       if(damage){const victory=combatDamage(s,damage,label,rng,extraDrain);if(victory){message=victory;break;}}
       message=enemyAttack(s,rng)||`${label}已施展`;break;
@@ -227,8 +227,6 @@ export function act(s: GameState, action: string, payload?: string|null, rng: Ra
       if(s.path){s.stones-=100;s.day++;}
       s.path=p.id;
       s.activeBooks=s.activeBooks.filter(id=>{const b=findManual(id);return !b?.path||b.path===s.path;});
-      const artifact=ARTIFACTS.find(i=>i.id===s.equipped.artifact);
-      if(artifact?.path&&artifact.path!==s.path)s.equipped.artifact=null;
       clampVitals(s);log(s,`立下道心，踏上${p.name}之路：${p.motto}。`,'story');message=`已踏入${p.name}之道`;break;
     }
     case 'buyGear': case 'buyArtifact': {
@@ -329,7 +327,7 @@ export function act(s: GameState, action: string, payload?: string|null, rng: Ra
   return { ok: true, message };
 }
 export function validateSave(value: unknown): GameState {
-  if (!value || typeof value!=='object' || !('version' in value) || ![1,2,3,4,5].includes(value.version as number)) throw new Error('存档版本不兼容');
+  if (!value || typeof value!=='object' || !('version' in value) || ![1,2,3,4,5,6].includes(value.version as number)) throw new Error('存档版本不兼容');
   const s = structuredClone(value) as GameState;
   const legacy=s.version<3;
   const layered=s.version===3;
@@ -353,6 +351,7 @@ export function validateSave(value: unknown): GameState {
   for(const [key,catalog] of [['gear',EQUIPMENT],['artifacts',ARTIFACTS]] as const){
     const owned=s[key];
     if(!owned||typeof owned!=='object'||Array.isArray(owned)||Object.entries(owned).some(([id,level])=>!catalog.some(i=>i.id===id)||!Number.isInteger(level)||level<0||level>3))throw new Error('灵库数据无效');
+    if(key==='artifacts'&&s.version<6&&Object.keys(owned).some(id=>!LEGACY_ARTIFACT_IDS.includes(id)))throw new Error('旧版法宝数据无效');
   }
   if(!s.equipped||typeof s.equipped!=='object'||Array.isArray(s.equipped)||Object.keys(s.equipped).length!==4)throw new Error('装备栏数据无效');
   for(const slot of [...Object.keys(SLOTS),'artifact']){
@@ -389,6 +388,7 @@ export function validateSave(value: unknown): GameState {
     clampVitals(s);
     if(s.pending?.kind==='combat')s.pending.shield=Math.min(s.pending.shield,attributes(s).maxHp);
   }
-  s.version=5;
+  s.version=6;
+  clampVitals(s);
   return s;
 }

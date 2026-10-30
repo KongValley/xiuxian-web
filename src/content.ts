@@ -1,4 +1,6 @@
-import type { ActiveSet, ArtifactItem, Bonus, CultivationPath, EquipmentItem, EquipmentSet, GameState, PathId, SetEffect, SpiritItem, Stat } from './types.js';
+import type { ActiveSet, Bonus, CultivationPath, EquipmentItem, EquipmentSet, GameState, PathId, RealmPosition, SetEffect, SpiritItem, Stat } from './types.js';
+import { artifactBonus } from './artifacts.js';
+export { ARTIFACTS } from './artifacts.js';
 export const PATHS: CultivationPath[] = [
   { id:'immortal', name:'仙修', mark:'仙', motto:'澄心明道，御气归真', desc:'顺应天道，灵力悠长，擅长修炼与回元。', passive:'修炼收益 +15% · 灵力上限 +20 · 突破成功率 +5%', skill:'太清回元', skillDesc:'恢复 30% 气血上限与 18 灵力；每场一次，消耗一回合。', ending:'羽化登仙', color:'jade' },
   { id:'demon', name:'魔修', mark:'魔', motto:'以血问道，一念焚天', desc:'逆命而行，以较弱防御换取爆发与汲血。', passive:'攻击 +20% · 防御 −2 · 造成伤害时汲血 12%', skill:'血焰斩', skillDesc:'消耗 12% 气血上限与 10 灵力，造成 3 倍攻击伤害；每场一次。', ending:'证道魔尊', color:'crimson' },
@@ -70,17 +72,10 @@ export function equippedSet(s: GameState): ActiveSet|null {
   const [realm,pieces]=match,effect=setEffects(realm,s.path);
   return {...effect,pieces,...(pieces<3?{heal:0,energyRegen:0,drain:0,shield:0}:{})};
 }
-export const ARTIFACTS: ArtifactItem[] = [
-  {id:'spiritBell',name:'青纹铃',mark:'铃',tier:0,realm:0,price:70,defense:2,cost:14,skill:'青铃镇魂',effect:'bell',desc:'造成 1.8 倍攻击伤害，并获得 12 点护盾。'},
-  {id:'scarletMirror',name:'赤霄镜',mark:'镜',tier:1,realm:1,price:220,attack:5,cost:20,skill:'赤霄焚影',effect:'blast',desc:'镜中赤光焚影，造成 2.8 倍攻击伤害。'},
-  {id:'originCauldron',name:'归元鼎',mark:'鼎',tier:1,realm:1,price:230,hp:25,cost:16,skill:'万气归元',effect:'heal',desc:'恢复 40% 气血上限与 12 灵力，适合持久战。'},
-  {id:'pureWhisk',name:'太清拂尘',mark:'尘',tier:1,realm:1,path:'immortal',price:260,energy:15,cost:18,skill:'太清荡尘',effect:'pure',desc:'仙修专属：造成 2.2 倍攻击伤害，恢复 20% 气血上限。'},
-  {id:'soulBanner',name:'噬魂幡',mark:'幡',tier:1,realm:1,path:'demon',price:260,attack:8,cost:18,skill:'噬魂血祭',effect:'drain',desc:'魔修专属：造成 2.5 倍攻击伤害，额外汲血 30%。'},
-  {id:'seaSeal',name:'山海印',mark:'印',tier:1,realm:1,path:'yao',price:260,hp:30,defense:2,cost:18,skill:'山海镇岳',effect:'seal',desc:'妖修专属：造成 2 倍攻击伤害，获得 25% 气血上限护盾。'}
-];
 export const STARTER_GEAR: Record<string,number> = { bambooSword:0, linenRobe:0 };
 export const STARTER_ARTIFACTS: Record<string,number> = { spiritBell:0 };
-export const gearBonus = (item: SpiritItem, level = 0,path: PathId|null=null): Bonus => {
+export const gearBonus = (item: SpiritItem, level = 0,path: PathId|null=null,position?:RealmPosition): Bonus => {
+  if('effect' in item)return artifactBonus(item,level,position);
   const affinity=affinityBonus(item,level,path);
   return Object.fromEntries((['attack','defense','hp','energy'] as Stat[]).map(k=>[k,Math.round((item[k] || 0) * (1 + level * .3))+affinity[k]])) as Bonus;
 };
