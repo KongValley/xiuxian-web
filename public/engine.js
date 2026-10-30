@@ -1,4 +1,4 @@
-import { PATHS, SLOTS, EQUIPMENT, ARTIFACTS, STARTER_GEAR, STARTER_ARTIFACTS, gearBonus, upgradeCost } from './content.js';
+import { PATHS, SLOTS, EQUIPMENT, ARTIFACTS, STARTER_GEAR, STARTER_ARTIFACTS, gearBonus, upgradeCost, equippedSet } from './content.js';
 export const REALMS = ['炼气', '筑基', '金丹', '元婴', '化神', '渡劫'];
 export const STAGES = ['初期', '中期', '后期'];
 export const BOOKS = [
@@ -38,8 +38,9 @@ export function attributes(s) {
   const bonus={attack:0,defense:0,hp:0,energy:0};
   for(const id of Object.values(s.equipped || {})) {
     const item=[...EQUIPMENT,...ARTIFACTS].find(x=>x.id===id);
-    if(item){const b=gearBonus(item,(s.gear?.[id] ?? s.artifacts?.[id]) || 0);for(const k of Object.keys(bonus))bonus[k]+=b[k];}
+    if(item){const b=gearBonus(item,(s.gear?.[id] ?? s.artifacts?.[id]) || 0,s.path);for(const k of Object.keys(bonus))bonus[k]+=b[k];}
   }
+  const set=equippedSet(s);if(set)for(const [k,v]of Object.entries(set.bonus))bonus[k]+=v;
   return { maxHp: Math.round((100 + rank * 24 + s.books.body * 20 + bonus.hp)*(s.path==='yao'?1.25:1)), maxEnergy: 100 + s.realm * 10 + bonus.energy + (s.path==='immortal'?20:0), attack: Math.round((14 + rank * 6 + s.books.sword * 5 + bonus.attack)*(s.path==='demon'?1.2:1)), defense: Math.max(0,3 + rank * 2 + s.books.body * 2 + bonus.defense + (s.path==='yao'?3:s.path==='demon'?-2:0)), xpNeed: Math.round(100 * (1 + rank * 0.6)), chance: Math.min(100, 80 - s.realm * 5 + (s.focus ? 20 : 0) + s.pity * 10 + (s.path==='immortal'?5:0)) };
 }
 export function endingLabel(s) { return PATHS.find(p=>p.id===s.path)?.ending || '羽化登仙'; }
@@ -64,7 +65,7 @@ function dropLoot(s, catalog, rng) {
 function combatDamage(s, damage, label, rng, extraDrain=0) {
   const e=s.pending,actual=Math.min(e.hp,damage), a=attributes(s);
   e.hp=Math.max(0,e.hp-damage);e.turns.push(`${label}，造成 ${damage} 点伤害。`);
-  const drain=(s.path==='demon'?.12:0)+extraDrain;
+  const drain=(s.path==='demon'?.12:0)+extraDrain+(equippedSet(s)?.drain||0);
   if(drain){const heal=Math.min(a.maxHp-s.hp,Math.round(actual*drain));s.hp+=heal;if(heal)e.turns.push(`汲取生机，气血 +${heal}。`);}
   if(e.hp>0)return null;
   const r=REGIONS.find(x=>x.id===e.region), xp=gainXp(s,35+r.realm*20),dust=1+r.realm;
@@ -86,6 +87,13 @@ function enemyAttack(s, rng, guard = false) {
     s.hp = Math.ceil(attributes(s).maxHp * 0.4); s.energy = Math.min(s.energy, 25); s.day += 2;
     log(s, `不敌${e.name}，借遁符退回洞府。疗伤两日，遗失 ${loss} 灵石。`, 'danger'); s.pending = null;
     return '灵符护住了心脉，你已退回洞府。';
+  }
+  const set=equippedSet(s);
+  if(set?.heal){
+    const a=attributes(s),h=Math.min(a.maxHp-s.hp,set.heal),n=Math.min(a.maxEnergy-s.energy,set.energyRegen);
+    s.hp+=h;s.energy+=n;
+    if(h||n)e.turns.push(`${set.name}清气回流，气血 +${h}，灵力 +${n}。`);
+    e.turns=e.turns.slice(-8);
   }
   return null;
 }
@@ -135,7 +143,8 @@ export function act(s, action, payload, rng = Math.random) {
       if (!spend(s, region.energy)) return fail('灵力不足，先恢复灵力再出发。');
       const roll = rng();
       if (roll < 0.4) {
-        s.pending = { kind: 'combat', region: region.id, name: region.enemy, hp: region.hp, maxHp: region.hp, attack: region.atk, shield:0,pathUsed:false,artifactCooldown:0, turns: [`穿过山雾，${region.enemy}拦住了去路。`] };
+        const set=equippedSet(s),shield=Math.round(a.maxHp*(set?.shield||0));
+        s.pending = { kind: 'combat', region: region.id, name: region.enemy, hp: region.hp, maxHp: region.hp, attack: region.atk, shield,pathUsed:false,artifactCooldown:0, turns: [`穿过山雾，${region.enemy}拦住了去路。`,...(shield?[`${set.name}山海护身，获得 ${shield} 点护盾。`]:[])] };
         log(s, `游历${region.name}，遭遇${region.enemy}。`, 'explore'); message = '妖兽现身，凝神应战';
       } else if (roll < 0.75) {
         s.pending = { kind: 'event', region: region.id, title: '山中有隐客', desc: '松荫下，一位白发散修正对着残缺的棋局出神。他抬眼看你：“道友，可愿坐下，与我共论此局？”', variant: 'sage' }; message = '机缘已至，请作抉择';

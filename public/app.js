@@ -1,5 +1,5 @@
 import { createGame, attributes, realmLabel, endingLabel, cultivationRate, calendar, act, validateSave, REALMS, BOOKS, ITEMS, REGIONS, QUESTS } from './engine.js';
-import { PATHS, SLOTS, EQUIPMENT, ARTIFACTS, gearBonus, upgradeCost } from './content.js';
+import { PATHS, SLOTS, EQUIPMENT, ARTIFACTS, GRADES, EQUIPMENT_SETS, gearBonus, affinityBonus, equippedSet, setEffects, upgradeCost } from './content.js';
 
 const paths = {
   home: '<path d="m3 11 9-8 9 8M5 10v10h14V10M9 20v-7h6v7"/>',
@@ -31,7 +31,7 @@ const icon = name => `<svg class="icon" viewBox="0 0 24 24" aria-hidden="true">$
 const escape = str => String(str).replace(/[&<>"']/g, c => ({ '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;' }[c]));
 const $ = selector => document.querySelector(selector);
 const SAVE_KEY = 'wendao-changsheng-v1';
-let state = createGame(), tab = 'home', filter = 'all', shopSection = 'items', toastTimer, storageAvailable = true;
+let state = createGame(), tab = 'home', filter = 'all', shopSection = 'items', gearRealm = 'current', toastTimer, storageAvailable = true;
 let loadWarning = '';
 try { const raw = localStorage.getItem(SAVE_KEY); if (raw) state = validateSave(JSON.parse(raw)); }
 catch { loadWarning = '旧存档无法读取，已开启新仙途。你仍可导入备份。'; }
@@ -127,28 +127,43 @@ function renderBooks() {
   }).join('')}`;
 }
 function renderShop() {
-  const isGear=shopSection==='gear', catalog=isGear?EQUIPMENT:ARTIFACTS, owned=isGear?state.gear:state.artifacts;
+  const isGear=shopSection==='gear', catalog=isGear?EQUIPMENT.filter(i=>gearRealm==='all'||i.realm===viewRealm()):ARTIFACTS, owned=isGear?state.gear:state.artifacts;
   const products=shopSection==='items'? ITEMS.map(i=>`<article class="panel item-card"><div class="item-icon ${i.id}">${i.label}</div><h3>${i.name}</h3><p>${i.desc}</p><div class="item-details"><span>${i.price} 灵石</span>${actionButton('buy','购入一枚',i.id,'outline',state.stones < i.price)}</div></article>`).join('') : catalog.map(i=>{
     const has=Object.hasOwn(owned,i.id),pathLocked=i.path&&state.path!==i.path,locked=state.realm<i.realm;
-    return `<article class="panel item-card"><div class="item-icon artifact-icon ${i.path||''}">${i.mark}</div><div class="gear-label">${['凡品','灵品','宝品'][i.tier]} · ${isGear?SLOTS[i.slot]:i.path?PATHS.find(p=>p.id===i.path).name+'专属':'通用法宝'}</div><h3>${i.name}</h3><p>${isGear?i.desc:i.skill+'：'+i.desc}</p><div class="bonus-line">${bonusText(i,0)}</div><div class="item-details"><span>${i.price} 灵石</span>${actionButton(isGear?'buyGear':'buyArtifact',has?'已拥有':locked?REALMS[i.realm]+'可购':pathLocked?'路径不符':'收入灵库',i.id,'outline',has||locked||pathLocked||state.stones<i.price)}</div></article>`;
+    return `<article class="panel item-card"><div class="item-icon artifact-icon ${i.path||state.path||''}">${i.mark}</div><div class="gear-label">${REALMS[i.realm]} · ${GRADES[i.tier]} · ${isGear?SLOTS[i.slot]:i.path?PATHS.find(p=>p.id===i.path).name+'专属':'通用法宝'}</div><h3>${i.name}</h3><p>${isGear?i.desc:i.skill+'：'+i.desc}</p><div class="bonus-line">${bonusText(i,0)}</div>${isGear?attunementMarkup(i,0):''}<div class="item-details"><span>${i.price} 灵石</span>${actionButton(isGear?'buyGear':'buyArtifact',has?'已拥有':locked?REALMS[i.realm]+'可购':pathLocked?'路径不符':'收入灵库',i.id,'outline',has||locked||pathLocked||state.stones<i.price)}</div></article>`;
   }).join('');
-  return `${intro('云来云去，好物相逢','丹药、灵装与法宝，皆可于此寻得。境界渐长，更多珍品自会向你敞开。','THE WANDERING MARKET')}<div class="shop-tabs" role="group" aria-label="坊市分类">${[['items','丹药灵材'],['gear','武器法衣'],['artifacts','法宝奇珍']].map(([id,name])=>`<button data-shop="${id}" class="${shopSection===id?'active':''}" aria-pressed="${shopSection===id}">${name}</button>`).join('')}</div><div class="item-grid">${products}</div><p class="soundless-note">购入装备后，请在「灵装法宝」中穿戴。法宝可提升属性，也能在战斗中主动催动。</p>`;
+  return `${intro('云来云去，好物相逢','丹药、灵装与法宝，皆可于此寻得。境界渐长，更多珍品自会向你敞开。','THE WANDERING MARKET')}<div class="shop-tabs" role="group" aria-label="坊市分类">${[['items','丹药灵材'],['gear','武器法衣'],['artifacts','法宝奇珍']].map(([id,name])=>`<button data-shop="${id}" class="${shopSection===id?'active':''}" aria-pressed="${shopSection===id}">${name}</button>`).join('')}</div>${isGear?`<div class="realm-filter"><label>装备境界 <select data-gear-realm aria-label="装备境界"><option value="current"${gearRealm==='current'?' selected':''}>当前境界 · ${REALMS[state.realm]}</option>${REALMS.map((r,n)=>`<option value="${n}"${String(gearRealm)===String(n)?' selected':''}>${r} · ${setEffects(n,state.path).name}</option>`).join('')}<option value="all"${gearRealm==='all'?' selected':''}>全部六境装备</option></select></label><span>每境三件 · 道纹随仙魔妖显化</span></div>`:''}<div class="item-grid">${products}</div><p class="soundless-note">购入装备后，请在「灵装法宝」中穿戴。同境两件、三件可激活路径套装效果；六境装备均可在坊市购买或历练中掉落。</p>`;
 }
 function bonusText(item,level) {
-  const b=gearBonus(item,level), names={attack:'攻击',defense:'防御',hp:'气血上限',energy:'灵力上限'};
+  return formatBonus(gearBonus(item,level,state.path));
+}
+function formatBonus(b){
+  const names={attack:'攻击',defense:'防御',hp:'气血上限',energy:'灵力上限'};
   return Object.entries(b).filter(([,v])=>v).map(([k,v])=>`${names[k]} +${v}`).join(' · ');
+}
+function viewRealm(){return gearRealm==='current'||gearRealm==='all'?state.realm:Number(gearRealm);}
+function attunementMarkup(item,level){
+  if(!state.path)return '<div class="attunement unchosen">尚未择道 · 入道后显化专属道纹</div>';
+  const p=PATHS.find(p=>p.id===state.path);
+  return `<div class="attunement ${p.id}"><span>${p.mark}纹</span>属性已含：${formatBonus(affinityBonus(item,level,state.path))}<small>${setEffects(item.realm,state.path).name} · 同境两件 / 三件生效</small></div>`;
+}
+function setThreeText(effect){return effect.heal?`每次承受敌方回合后存活，气血 +${effect.heal}、灵力 +${effect.energyRegen}`:effect.drain?`造成伤害额外汲血 ${Math.round(effect.drain*100)}%`:`每场开战获得气血上限 ${Math.round(effect.shield*100)}% 的护盾`;}
+function renderSetOverview(){
+  const realm=viewRealm(),items=EQUIPMENT.filter(i=>i.realm===realm),pieces=items.filter(i=>state.equipped[i.slot]===i.id).length,owned=items.filter(i=>Object.hasOwn(state.gear,i.id)).length;
+  return `${sectionHeading('lotus','六境套装','六个境界 · 十八件灵装')}<div class="set-realm-tabs" role="group" aria-label="套装境界">${EQUIPMENT_SETS.map(s=>`<button data-set-realm="${s.realm}" class="${realm===s.realm?'active':''}" aria-pressed="${realm===s.realm}"><span>${REALMS[s.realm]}</span><small>${s.name}</small></button>`).join('')}</div><section class="panel set-overview"><div class="set-heading"><div><span class="gear-label">${GRADES[realm]} · ${REALMS[realm]}可用</span><h3>${setEffects(realm,state.path).name}</h3></div><span class="tag">已拥有 ${owned}/3 · 穿戴 ${pieces}/3</span></div><div class="set-components">${items.map(i=>`<span class="${state.equipped[i.slot]===i.id?'worn':''}">${SLOTS[i.slot]} · ${i.name}${state.equipped[i.slot]===i.id?' ✓':''}</span>`).join('')}</div><div class="set-path-effects">${PATHS.map(p=>{const e=setEffects(realm,p.id);return `<div class="set-effect-row ${p.id} ${state.path===p.id?'selected':''}"><span class="set-path-mark">${p.mark}</span><div><strong>${e.name}${state.path===p.id?' · 当前路径':''}</strong><p><span class="${state.path===p.id&&pieces>=2?'effect-active':''}">两件：${formatBonus(e.bonus)}</span><br><span class="${state.path===p.id&&pieces===3?'effect-active':''}">三件：${setThreeText(e)}</span></p></div></div>`;}).join('')}</div><div class="set-overview-footer"><span>${state.path?'装备道纹和套装随改修自动转换':'尚未定道，道纹与套装效果暂未激活'}</span><button class="text-link" data-ui="shopSet" data-value="${realm}">坊市寻此套装 ↗</button></div></section>`;
 }
 function ownedCard(item,isArtifact) {
   const owned=isArtifact?state.artifacts:state.gear,level=owned[item.id],slot=isArtifact?'artifact':item.slot,equipped=state.equipped[slot]===item.id;
   const cost=upgradeCost(item,level),locked=state.realm<item.realm||(item.path&&item.path!==state.path);
-  return `<article class="panel owned-card"><div class="owned-top"><span class="gear-glyph ${item.path||''}">${item.mark}</span><div><span class="gear-label">${['凡品','灵品','宝品'][item.tier]} · ${isArtifact?'法宝':SLOTS[item.slot]}${item.path?' · '+PATHS.find(p=>p.id===item.path).name+'专属':''}</span><h3>${item.name} <small>+${level}</small></h3></div>${equipped?'<span class="tag equipped-tag">已装备</span>':''}</div><div class="bonus-line">${bonusText(item,level)}</div><p class="gear-description">${isArtifact ? item.skill+'：'+item.desc+` 每级淬炼使主动效果增加 20%；消耗 ${item.cost} 灵力，冷却三回合。` : item.desc}</p><div class="owned-actions">${equipped?actionButton('unequip','卸下',slot,'outline'):actionButton(isArtifact?'equipArtifact':'equip',locked?'条件不符':isArtifact?'炼化装备':'穿戴',item.id,'primary',locked)}${actionButton(isArtifact?'upgradeArtifact':'upgradeGear',level>=3?'淬炼圆满':'淬炼进阶',item.id,'outline',level>=3||state.stones<cost.stones||state.dust<cost.dust)}</div><small class="upgrade-note">${level>=3?'已达 +3 · 被动属性提升 90%':`淬炼：${cost.stones} 灵石 + ${cost.dust} 灵砂 + 8 灵力 · 1 日`}</small></article>`;
+  return `<article class="panel owned-card"><div class="owned-top"><span class="gear-glyph ${item.path||state.path||''}">${item.mark}</span><div><span class="gear-label">${REALMS[item.realm]} · ${GRADES[item.tier]} · ${isArtifact?'法宝':SLOTS[item.slot]}${item.path?' · '+PATHS.find(p=>p.id===item.path).name+'专属':''}</span><h3>${item.name} <small>+${level}</small></h3></div>${equipped?'<span class="tag equipped-tag">已装备</span>':''}</div><div class="bonus-line">${bonusText(item,level)}</div>${isArtifact?'':attunementMarkup(item,level)}<p class="gear-description">${isArtifact ? item.skill+'：'+item.desc+` 每级淬炼使主动效果增加 20%；消耗 ${item.cost} 灵力，冷却三回合。` : item.desc}</p><div class="owned-actions">${equipped?actionButton('unequip','卸下',slot,'outline'):actionButton(isArtifact?'equipArtifact':'equip',locked?'条件不符':isArtifact?'炼化装备':'穿戴',item.id,'primary',locked)}${actionButton(isArtifact?'upgradeArtifact':'upgradeGear',level>=3?'淬炼圆满':'淬炼进阶',item.id,'outline',level>=3||state.stones<cost.stones||state.dust<cost.dust)}</div><small class="upgrade-note">${level>=3?'已达 +3 · 属性与道纹提升 90%':`淬炼：${cost.stones} 灵石 + ${cost.dust} 灵砂 + 8 灵力 · 1 日`}</small></article>`;
 }
 function renderGear() {
   const a=attributes(state);
-  return `${pendingBanner()}${intro('灵装护身，万宝随心','三栏装备，一件本命法宝。穿戴加持属性，催宝改变战局，淬炼让珍藏随你成长。','EQUIPMENT & ARTIFACTS')}<div class="loadout-slots">${[...Object.entries(SLOTS),['artifact','法宝']].map(([slot,name])=>{
+  const activeSet=equippedSet(state);
+  return `${pendingBanner()}${intro('灵装护身，万宝随心','六境各有一套灵装，仙魔妖各有道纹。集齐同境三件，唤醒属于你这条道的套装之力。','EQUIPMENT & ARTIFACTS')}${activeSet?`<div class="active-set-note">${activeSet.name} · ${activeSet.pieces}/3 <span>两件效果已激活${activeSet.pieces===3?' · 三件效果已激活':''}</span></div>`:''}<div class="loadout-slots">${[...Object.entries(SLOTS),['artifact','法宝']].map(([slot,name])=>{
     const item=[...EQUIPMENT,...ARTIFACTS].find(i=>i.id===state.equipped[slot]);
     return `<div class="panel loadout-slot"><span>${icon(slot==='artifact'?'lotus':slot==='weapon'?'sword':slot==='armor'?'bag':'leaf')}${name}</span><strong>${item?item.name:'未装备'}</strong><small>${item?'+'+(state.gear[item.id]??state.artifacts[item.id]):'从下方灵库挑选'}</small></div>`;
-  }).join('')}</div><div class="gear-totals"><span>攻击 <b>${a.attack}</b></span><span>防御 <b>${a.defense}</b></span><span>气血上限 <b>${a.maxHp}</b></span><span>灵砂 <b>${state.dust}</b></span></div>${sectionHeading('sword','随身灵装','每栏可装备一件')}<div class="owned-grid">${EQUIPMENT.filter(i=>Object.hasOwn(state.gear,i.id)).map(i=>ownedCard(i,false)).join('')||'<p class="empty-note">暂未拥有灵装，可前往坊市购买。</p>'}</div>${sectionHeading('lotus','法宝灵库','同一时间可炼化一件法宝')}<div class="owned-grid">${ARTIFACTS.filter(i=>Object.hasOwn(state.artifacts,i.id)).map(i=>ownedCard(i,true)).join('')}</div><p class="soundless-note">已赠青竹剑、素云袍、青纹铃，请手动装备。战胜妖兽必得灵砂，35% 概率掉落装备；成功探查遗藏后有 20% 概率获得法宝，重复灵物转为 3 灵砂。穿卸装备不会恢复气血或灵力，历练途中不可换装。</p><button class="btn outline" data-tab="shop">前往坊市寻宝 ${icon('arrow')}</button>`;
+  }).join('')}</div><div class="gear-totals"><span>攻击 <b>${a.attack}</b></span><span>防御 <b>${a.defense}</b></span><span>气血上限 <b>${a.maxHp}</b></span><span>灵砂 <b>${state.dust}</b></span></div>${renderSetOverview()}${sectionHeading('sword','随身灵装','属性已含当前路径道纹')}<div class="owned-grid">${EQUIPMENT.filter(i=>Object.hasOwn(state.gear,i.id)).map(i=>ownedCard(i,false)).join('')||'<p class="empty-note">暂未拥有灵装，可前往坊市购买。</p>'}</div>${sectionHeading('lotus','法宝灵库','同一时间可炼化一件法宝')}<div class="owned-grid">${ARTIFACTS.filter(i=>Object.hasOwn(state.artifacts,i.id)).map(i=>ownedCard(i,true)).join('')}</div><p class="soundless-note">已赠青竹剑、素云袍、青纹铃，请手动装备。战胜妖兽必得灵砂，35% 概率掉落装备；成功探查遗藏后有 20% 概率获得法宝，重复灵物转为 3 灵砂。穿卸装备不会恢复气血或灵力，历练途中不可换装。</p><button class="btn outline" data-tab="shop">前往坊市寻宝 ${icon('arrow')}</button>`;
 }
 function renderPaths() {
   return `${pendingBanner()}${intro('仙魔妖途，道由心生','同一片山河，三种问道之身。每条路都有天赋、本命神通与专属法宝，也有各自的长生结局。','THREE PATHS · ONE ETERNAL JOURNEY')}<div class="path-policy"><span class="status-dot"></span>${state.path?'当前路径：'+PATHS.find(p=>p.id===state.path).name+' · 改修需 100 灵石与 1 日':'尚未定道 · 首次选择免费，保留全部现有进度'}</div><div class="path-cards">${PATHS.map(p=>`<article class="panel path-card ${p.color} ${state.path===p.id?'chosen':''}"><div class="path-card-heading"><span class="path-seal">${p.mark}</span><div><div class="dialog-eyebrow">${p.id.toUpperCase()}</div><h2>${p.motto}</h2><p>${p.desc}</p></div></div><div class="path-detail"><span>天赋</span><p>${p.passive}</p></div><div class="path-detail"><span>神通</span><p><strong>${p.skill}</strong> · ${p.skillDesc}</p></div><div class="path-detail"><span>命宝</span><p>${ARTIFACTS.find(i=>i.path===p.id).name} · 筑基后可于坊市寻得</p></div><div class="path-bottom"><span>终途 · ${p.ending}</span><button class="btn ${state.path===p.id?'secondary':'outline'}" data-ui="choosePath" data-value="${p.id}"${state.path===p.id||state.ended?' disabled':''}>${state.path===p.id?'此心已定':state.path?'改修此道':'踏入'+p.name} ${state.path===p.id?'✓':icon('arrow')}</button></div></article>`).join('')}</div><p class="soundless-note">改修保留境界、功法与全部藏品，会自动卸下路径不符的专属法宝。路径或装备上限提升后，需静养或服丹恢复；改修与换装不治疗伤势。历练途中不可改修。</p>`;
@@ -173,6 +188,7 @@ function showDialog(title, body, actions = '') {
 function showGuide() {
   const steps = [['壹','吐纳入道','在洞府吐纳或闭关提升修为；灵力不足时听泉静养。所有时间都由你的选择推进。'],['贰','修为圆满，尝试破境','修为满后消耗 20 灵力突破，凝神丹能提高成功率。失败保留八成修为，后续成功率逐次增加 10%。'],['叁','行万里路，求一线缘','进入山河历练，选择奇遇或迎战妖兽。战斗中可以普攻、御剑、防守回灵或遁走；服丹会消耗一回合。'],['肆','灵材炼丹，功法立身','采药与历练获得灵石灵材，在坊市购丹、藏经阁研习功法。行囊中三株凝露草可炼一枚聚气丹。'],['伍','十八次破境，问道长生','炼气、筑基、金丹、元婴、化神、渡劫，各分初、中、后期。渡尽最后一重雷劫，依所选路径证道长生。']];
   steps.push(['陆','灵器护身，法宝随行','灵装法宝中可装备武器、法衣、佩饰与一件法宝。胜敌必得灵砂，可能掉装备；遗藏可能出法宝。灵砂与灵石可淬炼三次，法宝在战斗中使用，冷却三回合。'],['柒','仙魔妖途，道心自选','三途问道中首次择道免费。仙修擅回元，魔修擅爆发汲血，妖修擅体魄护盾。本命神通每场一次；改修需 100 灵石与一日，并卸下路径不符的专属法宝。最终结局随路径变化。']);
+  steps.push(['捌','六境灵装，道纹相应','每个境界有武器、法衣、佩饰各一件，同境两件激活属性加成，三件再激活路径效果：仙修承受敌方回合后存活可回元，魔修额外汲血，妖修开战获得护盾。道纹和套装随改修转换；装备图鉴可查看三途效果，坊市可按境界选购。']);
   showDialog('修行指南', `<div class="dialog-eyebrow">A SMALL GUIDE FOR A LONG JOURNEY</div>${steps.map(([n,t,d])=>`<div class="guide-step"><span>${n}</span><div><h3>${t}</h3><p>${d}</p></div></div>`).join('')}<div class="warning-note">每次操作后自动保存在当前浏览器。跨设备游玩请导出存档，再于另一设备导入。无强制等待，无离线惩罚。</div>`, '<button class="btn primary" data-ui="close">心中有道，启程修行</button>');
 }
 function showSettings() {
@@ -195,6 +211,8 @@ function showPending() {
     $('.battle-status').insertAdjacentHTML('afterend',`<div class="battle-extra"><span>${p?.name||'散修'} · 护盾 ${e.shield}</span><span>${artifact?artifact.name:'尚未装备法宝'}</span></div>`);
     $('.battle-controls').insertAdjacentHTML('beforeend',`${actionButton('pathSkill',p?(e.pathUsed?'本命神通 · 已施展':p.skill):'尚未选择修行路径','','secondary',!p||e.pathUsed)}${actionButton('artifactSkill',artifact?(e.artifactCooldown?`法宝冷却 · ${e.artifactCooldown} 回合`:artifact.skill+` · ${artifact.cost} 灵力`):'尚未装备法宝','','gold',!artifact||e.artifactCooldown>0||(artifact&&state.energy<artifact.cost))}`);
     $('.battle-potions').insertAdjacentHTML('afterend',`<p class="soundless-note">${p?p.skill+'：'+p.skillDesc:'在洞府选择路径、装备法宝后，下一场历练即可施展。'}${artifact?' 催动法宝消耗一回合，之后再行动三回合可再次使用。':''}</p>`);
+    const set=equippedSet(state);
+    if(set)$('.battle-extra').insertAdjacentHTML('afterend',`<div class="battle-set-note">${set.name} · ${set.pieces}/3${set.pieces===3?' · '+setThreeText(set):' · 两件效果已生效'}</div>`);
     const record = $('.battle-record'); record.scrollTop = record.scrollHeight;
   }
 }
@@ -210,6 +228,7 @@ document.addEventListener('click', event => {
   const button = event.target.closest('button'); if (!button || button.disabled) return;
   if (button.dataset.tab) { setTab(button.dataset.tab); return; }
   if (button.dataset.shop) { shopSection=button.dataset.shop; render(); return; }
+  if (button.dataset.setRealm!==undefined) { gearRealm=button.dataset.setRealm; render(); return; }
   if (button.dataset.filter) { filter = button.dataset.filter; renderLogs(); return; }
   if (button.dataset.action) {
     const action = button.dataset.action;
@@ -228,6 +247,7 @@ document.addEventListener('click', event => {
     case 'logs': showDialog('仙途纪事',`<div class="dialog-eyebrow">YOUR STORY · 第 ${state.day} 日</div><div class="all-logs">${state.logs.map(logMarkup).join('')}</div><p class="soundless-note">保留最近 100 条纪事。</p>`); break;
     case 'breakthrough': showBreakthrough(); break;
     case 'resume': showPending(); break;
+    case 'shopSet': gearRealm=button.dataset.value;shopSection='gear';setTab('shop');break;
     case 'choosePath': {
       const p=PATHS.find(p=>p.id===button.dataset.value);if(!p)break;
       showDialog(state.path?'重立道心':'择道启程',`<div class="dialog-eyebrow">${p.name} · ${p.motto}</div><p>${p.passive}</p><p>本命神通「${p.skill}」：${p.skillDesc}</p><div class="warning-note">${state.path?'改修消耗 100 灵石与 1 日。保留全部进度和藏品，自动卸下路径不符的专属法宝。':'首次择道免费，保留全部现有进度。'}上限提升不恢复当前气血或灵力。</div>`,actionButton('choosePath','道心已定 · '+p.name,p.id,'primary'));
@@ -247,6 +267,11 @@ document.addEventListener('submit', event => {
   event.preventDefault(); const name = $('#name-input').value.trim();
   if (!name) { toast('道号不可为空'); return; }
   state.name = name.slice(0,12); save(); render(); dialog.close(); toast(`此后仙途，便以「${state.name}」为名`);
+});
+document.addEventListener('change',event=>{
+  if(!event.target.matches('[data-gear-realm]'))return;
+  const value=event.target.value;
+  if(['current','all','0','1','2','3','4','5'].includes(value)){gearRealm=value;render();}
 });
 $('#import-file').addEventListener('change', async event => {
   const file = event.target.files[0]; event.target.value = ''; if (!file) return;

@@ -13,8 +13,50 @@ export const EQUIPMENT = [
   {id:'starPendant',name:'七星佩',slot:'charm',mark:'星',tier:1,realm:1,price:150,energy:18,defense:2,desc:'星辉在玉，灵气流转不息。'},
   {id:'heavenSword',name:'斩霄剑',slot:'weapon',mark:'霄',tier:2,realm:2,price:360,attack:25,desc:'金丹淬锋，一剑斩开云霄。'},
   {id:'dragonRobe',name:'苍龙宝甲',slot:'armor',mark:'甲',tier:2,realm:2,price:380,hp:70,defense:9,desc:'鳞甲含光，承山海之重。'},
-  {id:'voidPendant',name:'太虚环',slot:'charm',mark:'环',tier:2,realm:2,price:400,energy:30,attack:6,desc:'虚空一环，万象凝于方寸。'}
+  {id:'voidPendant',name:'太虚环',slot:'charm',mark:'环',tier:2,realm:2,price:400,energy:30,attack:6,desc:'虚空一环，万象凝于方寸。'},
+  {id:'abyssSword',name:'归墟剑',slot:'weapon',mark:'墟',tier:3,realm:3,price:760,attack:42,desc:'一剑归墟，万籁俱寂。'},
+  {id:'dawnRobe',name:'归元法衣',slot:'armor',mark:'元',tier:3,realm:3,price:800,hp:110,defense:14,desc:'元神入织，护道归真。'},
+  {id:'jadeOrbit',name:'玉衡佩',slot:'charm',mark:'衡',tier:3,realm:3,price:850,energy:42,attack:10,desc:'玉衡定星，神魂不移。'},
+  {id:'eternitySword',name:'天衍剑',slot:'weapon',mark:'衍',tier:4,realm:4,price:1450,attack:65,desc:'剑衍万法，念动星河。'},
+  {id:'celestialRobe',name:'太清法衣',slot:'armor',mark:'清',tier:4,realm:4,price:1500,hp:160,defense:20,desc:'太清无垢，万法难侵。'},
+  {id:'spiritPendant',name:'万象佩',slot:'charm',mark:'象',tier:4,realm:4,price:1600,energy:56,attack:16,desc:'神游万象，心照寰宇。'},
+  {id:'tribulationSword',name:'九霄剑',slot:'weapon',mark:'霄',tier:5,realm:5,price:2600,attack:95,desc:'九霄雷霆为锋，直斩天门。'},
+  {id:'thunderRobe',name:'天劫仙衣',slot:'armor',mark:'劫',tier:5,realm:5,price:2800,hp:230,defense:28,desc:'雷劫淬衣，历万劫而不损。'},
+  {id:'chaosRing',name:'混元环',slot:'charm',mark:'混',tier:5,realm:5,price:3000,energy:75,attack:24,desc:'混元归一，长生咫尺。'}
 ];
+export const GRADES = ['凡品','灵品','宝品','玄品','道品','劫品'];
+export const EQUIPMENT_SETS = [
+  {realm:0,name:'青云',immortal:'清风',demon:'血荆',yao:'山灵'},
+  {realm:1,name:'流霞',immortal:'流霞',demon:'赤煞',yao:'玄鳞'},
+  {realm:2,name:'太虚',immortal:'太虚',demon:'噬魂',yao:'苍龙'},
+  {realm:3,name:'归墟',immortal:'归墟',demon:'幽冥',yao:'荒古'},
+  {realm:4,name:'天衍',immortal:'天衍',demon:'诛神',yao:'万象'},
+  {realm:5,name:'九霄',immortal:'九霄',demon:'灭世',yao:'混元'}
+];
+export function affinityBonus(item,level=0,path=null){
+  if(!item.slot||!PATHS.some(p=>p.id===path))return {attack:0,defense:0,hp:0,energy:0};
+  const r=item.realm+1,scale=1+level*.3;
+  const effects={
+    immortal:{weapon:{attack:r,energy:2*r},armor:{defense:r,energy:3*r},charm:{energy:5*r,hp:4*r}},
+    demon:{weapon:{attack:2*r},armor:{attack:r,hp:5*r},charm:{attack:r,energy:2*r}},
+    yao:{weapon:{attack:r,hp:8*r},armor:{hp:12*r,defense:r},charm:{hp:10*r,defense:r}}
+  };
+  const bonus=effects[path][item.slot];
+  return Object.fromEntries(['attack','defense','hp','energy'].map(k=>[k,Math.round((bonus[k]||0)*scale)]));
+}
+export function setEffects(realm,path){
+  const r=realm+1,definition=EQUIPMENT_SETS[realm];
+  const effects={immortal:{bonus:{energy:8*r},heal:2*r,energyRegen:r},demon:{bonus:{attack:3*r},drain:.04+.01*realm},yao:{bonus:{hp:15*r},shield:.08+.02*realm}};
+  return {realm,name:(definition?.[path]||definition?.name||'无名')+'套装',bonus:{},heal:0,energyRegen:0,drain:0,shield:0,...(effects[path]||{})};
+}
+export function equippedSet(s){
+  const counts=new Map();
+  for(const slot of Object.keys(SLOTS)){const item=EQUIPMENT.find(i=>i.id===s.equipped?.[slot]);if(item)counts.set(item.realm,(counts.get(item.realm)||0)+1);}
+  const match=[...counts].find(([,count])=>count>=2);
+  if(!match||!PATHS.some(p=>p.id===s.path))return null;
+  const [realm,pieces]=match,effect=setEffects(realm,s.path);
+  return {...effect,pieces,...(pieces<3?{heal:0,energyRegen:0,drain:0,shield:0}:{})};
+}
 export const ARTIFACTS = [
   {id:'spiritBell',name:'青纹铃',mark:'铃',tier:0,realm:0,price:70,defense:2,cost:14,skill:'青铃镇魂',effect:'bell',desc:'造成 1.8 倍攻击伤害，并获得 12 点护盾。'},
   {id:'scarletMirror',name:'赤霄镜',mark:'镜',tier:1,realm:1,price:220,attack:5,cost:20,skill:'赤霄焚影',effect:'blast',desc:'镜中赤光焚影，造成 2.8 倍攻击伤害。'},
@@ -25,5 +67,8 @@ export const ARTIFACTS = [
 ];
 export const STARTER_GEAR = { bambooSword:0, linenRobe:0 };
 export const STARTER_ARTIFACTS = { spiritBell:0 };
-export const gearBonus = (item, level = 0) => Object.fromEntries(['attack','defense','hp','energy'].map(k=>[k,Math.round((item[k] || 0) * (1 + level * .3))]));
+export const gearBonus = (item, level = 0,path=null) => {
+  const affinity=affinityBonus(item,level,path);
+  return Object.fromEntries(['attack','defense','hp','energy'].map(k=>[k,Math.round((item[k] || 0) * (1 + level * .3))+affinity[k]]));
+};
 export function upgradeCost(item, level) { return { stones:20*(item.tier+1)*(level+1),dust:(2+level*2)*(item.tier+1) }; }
