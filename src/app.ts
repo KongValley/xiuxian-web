@@ -2,6 +2,8 @@ import { createGame, attributes, realmLabel, endingLabel, cultivationRate, calen
 import { PATHS, SLOTS, EQUIPMENT, ARTIFACTS, GRADES, EQUIPMENT_SETS, gearBonus, affinityBonus, equippedSet, setEffects, upgradeCost } from './content.js';
 import { FINAL_REALM, TOTAL_BREAKTHROUGHS, stageCount, worldLabel, nextStep, isAscension } from './realms.js';
 import type { ArtifactItem, Bonus, EquipmentItem, LogEntry, SetEffect, SpiritItem } from './types.js';
+import { breakthroughScene, previewBreakthrough } from './breakthrough-scene.js';
+import { animationPreference, playBreakthrough, setAnimationEnabled } from './breakthrough-effects.js';
 
 const paths: Record<string,string> = {
   home: '<path d="m3 11 9-8 9 8M5 10v10h14V10M9 20v-7h6v7"/>',
@@ -35,6 +37,7 @@ const $ = <T extends HTMLElement = HTMLElement>(selector: string): T => { const 
 const SAVE_KEY = 'wendao-changsheng-v1';
 let state = createGame(), tab = 'home', filter = 'all', shopSection = 'items', gearRealm = 'current', storageAvailable = true;
 let toastTimer: ReturnType<typeof setTimeout> | undefined;
+let breakthroughPlaying=false;
 let loadWarning = '';
 try { const raw = localStorage.getItem(SAVE_KEY); if (raw) state = validateSave(JSON.parse(raw)); }
 catch { loadWarning = '旧存档无法读取，已开启新仙途。你仍可导入备份。'; }
@@ -196,7 +199,9 @@ function showGuide() {
   showDialog('修行指南', `<div class="dialog-eyebrow">A SMALL GUIDE FOR A LONG JOURNEY</div>${steps.map(([n,t,d])=>`<div class="guide-step"><span>${n}</span><div><h3>${t}</h3><p>${d}</p></div></div>`).join('')}<div class="warning-note">每次操作后自动保存在当前浏览器。跨设备游玩请导出存档，再于另一设备导入。无强制等待，无离线惩罚。</div>`, '<button class="btn primary" data-ui="close">心中有道，启程修行</button>');
 }
 function showSettings() {
+  const motion=animationPreference();
   showDialog('存档与设置', `<div class="dialog-eyebrow">KEEP YOUR JOURNEY SAFE</div><p>当前道友：${escape(state.name)} · ${realmLabel(state)}<br>仙途已行 ${state.day - 1} 日 · ${storageAvailable ? '每次选择后自动存档' : '自动存档不可用，请导出备份'}</p><div class="setting-row"><div><h3>导出仙途</h3><p>下载 JSON 存档，随时备份或迁移。</p></div><button class="btn outline" data-ui="export">导出存档</button></div><div class="setting-row"><div><h3>续写旧卷</h3><p>导入后会覆盖当前进度。</p></div><button class="btn outline" data-ui="import">导入存档</button></div><div class="setting-row"><div><h3>重启仙途</h3><p>舍下此段尘缘，重新从炼气初期开始。</p></div><button class="btn danger" data-ui="reset-confirm">重新开始</button></div><p class="soundless-note">此游戏为单机文字冒险。存档保存在本机当前浏览器，不上传角色与游玩数据。</p>`);
+  $('.dialog-body .setting-row').insertAdjacentHTML('beforebegin',`<div class="setting-row"><div><h3>突破动画</h3><p>${motion.systemReduced?'系统已启用减少动态效果，将直接显示结果。':'小境灵气归元，大境天雷试道；可随时跳过。'}</p></div><button type="button" class="btn outline motion-switch" role="switch" aria-label="突破动画" aria-checked="${motion.enabled}" data-ui="toggle-effects">${motion.enabled?'已开启':'已关闭'}</button></div><div class="setting-row"><div><h3>观想天雷</h3><p>预览大境突破演出，不改变修为或存档。</p></div><button type="button" class="btn outline" data-ui="preview-effects">预览天雷</button></div>`);
 }
 function showBreakthrough() {
   const a = attributes(state), full = state.xp >= a.xpNeed;
@@ -230,6 +235,7 @@ function setTab(value: string) {
   tab = value; history.replaceState(null,'',`#${tab}`); render(); window.scrollTo({top:0,behavior:'instant'});
 }
 document.addEventListener('click', event => {
+  if(breakthroughPlaying)return;
   if(!(event.target instanceof Element))return;
   const button = event.target.closest('button'); if (!button || button.disabled) return;
   if (button.dataset.tab) { setTab(button.dataset.tab); return; }
@@ -238,9 +244,17 @@ document.addEventListener('click', event => {
   if (button.dataset.filter) { filter = button.dataset.filter; renderLogs(); return; }
   if (button.dataset.action) {
     const action = button.dataset.action;
+    const before=action==='breakthrough'?structuredClone(state):null;
     const result = act(state,action,button.dataset.value);
     if (!result.ok) { toast(result.message); return; }
-    save(); render(); toast(result.message);
+    save(); render();
+    if(before){
+      breakthroughPlaying=true;
+      if(dialog.open)dialog.close();
+      void playBreakthrough(breakthroughScene(before,state)).catch(()=>toast(result.message)).finally(()=>{breakthroughPlaying=false;$('#main').focus({preventScroll:true});});
+      return;
+    }
+    toast(result.message);
     if (state.pending) showPending();
     else if (dialog.open && action === 'use' && button.dataset.value === 'focus') showBreakthrough();
     else if (dialog.open) dialog.close();
@@ -249,6 +263,12 @@ document.addEventListener('click', event => {
   switch (button.dataset.ui) {
     case 'guide': showGuide(); break;
     case 'settings': showSettings(); break;
+    case 'toggle-effects': setAnimationEnabled(!animationPreference().enabled);showSettings();break;
+    case 'preview-effects': {
+      breakthroughPlaying=true;dialog.close();
+      void playBreakthrough(previewBreakthrough(state.path)).catch(()=>toast('演出暂不可用，修行进度未改变')).finally(()=>{breakthroughPlaying=false;showSettings();});
+      break;
+    }
     case 'close': dialog.close(); break;
     case 'logs': showDialog('仙途纪事',`<div class="dialog-eyebrow">YOUR STORY · 第 ${state.day} 日</div><div class="all-logs">${state.logs.map(logMarkup).join('')}</div><p class="soundless-note">保留最近 100 条纪事。</p>`); break;
     case 'breakthrough': showBreakthrough(); break;

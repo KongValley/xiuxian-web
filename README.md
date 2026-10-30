@@ -20,6 +20,7 @@ npm.cmd run dev
 ## 已实现玩法
 
 - 洞府：吐纳、三日闭关、静养、采药与突破。
+- 破境演出：每次小阶段突破有灵气汇聚、阵纹扩散；跨大境界有劫云与三道天雷，大乘飞升有四道天雷。仙、魔、妖采用不同灵光配色，成功与失败分别收束。支持跳过、设置关闭和系统减少动态效果；设置中可无损预览天雷。
 - 山河：四张按境界解锁的地图，随机论道、遗藏和回合制战斗。
 - 藏经阁：吐纳、剑术、炼体三类功法，各五重。
 - 坊市与行囊：购丹、服丹、出售灵材、采药炼丹。
@@ -33,7 +34,7 @@ npm.cmd run dev
 
 ## 文件
 
-`src/types.ts` 定义角色、战斗、装备与路径类型；`src/realms.ts` 统一定义境界、阶段与飞升；`src/engine.ts` 是与页面分离的游戏规则；`src/content.ts` 存放路径、装备和法宝数值；`src/app.ts` 负责页面与交互。`public/` 保留 HTML、CSS 与美术资源；`scripts/*.ts` 负责构建与开发服务；`tests/*.test.ts` 覆盖数值、战斗、完整结局和存档迁移。`dist/` 为生成文件，不提交到 Git。
+`src/types.ts` 定义角色、战斗、装备与路径类型；`src/realms.ts` 统一定义境界、阶段与飞升；`src/engine.ts` 是与页面分离的游戏规则；`src/content.ts` 存放路径、装备和法宝数值；`src/app.ts` 负责页面与交互；`src/breakthrough-scene.ts` 生成突破结果快照，`src/breakthrough-effects.ts` 用 Canvas / SVG 播放原创演出。`public/` 保留 HTML、CSS 与美术资源；`scripts/*.ts` 负责构建与开发服务；`tests/*.test.ts` 覆盖数值、战斗、完整结局和存档迁移。`dist/` 为生成文件，不提交到 Git。
 
 美术资产均随项目提供。字体优先加载 Google Fonts 的思源宋体和思源黑体，无法连接时自动使用系统中文字体，不影响游玩。
 
