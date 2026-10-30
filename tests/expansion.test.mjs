@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {createGame,act,attributes,validateSave,endingLabel,cultivationRate} from '../public/engine.js';
 import {PATHS,EQUIPMENT,ARTIFACTS,gearBonus} from '../public/content.js';
+import { TOTAL_BREAKTHROUGHS } from '../public/realms.js';
 const low=()=>0,high=()=>.99;
 function run(s,a,p,r=low){const out=act(s,a,p,r);assert.equal(out.ok,true,out.message);validateSave(s);return out;}
 function unchanged(s,a,p){const before=structuredClone(s);assert.equal(act(s,a,p).ok,false);assert.deepEqual(s,before);}
@@ -10,7 +11,7 @@ function legacy(s){const old=structuredClone(s);old.version=1;for(const k of ['p
 
 test('旧版存档无损迁移，基础装备不自动改变原属性',()=>{
   const old=legacy(createGame());old.day=53;old.xp=84;old.hp=65;old.stones=148;
-  const s=validateSave(old);assert.equal(s.version,2);assert.equal(s.day,53);assert.equal(s.xp,84);assert.equal(s.hp,65);assert.equal(s.stones,148);assert.equal(s.path,null);assert.equal(s.gear.bambooSword,0);assert.equal(s.artifacts.spiritBell,0);assert.equal(attributes(s).attack,14);assert.equal(old.version,1);
+  const s=validateSave(old);assert.equal(s.version,3);assert.equal(s.day,53);assert.equal(s.xp,84);assert.equal(s.hp,65);assert.equal(s.stones,148);assert.equal(s.path,null);assert.equal(s.gear.bambooSword,0);assert.equal(s.artifacts.spiritBell,0);assert.equal(attributes(s).attack,14);assert.equal(old.version,1);
   assert.deepEqual(validateSave(s),s);
 });
 test('旧版进行中的战斗迁移后仍可结算',()=>{
@@ -76,8 +77,8 @@ test('存档拒绝非法装备、路径、强化和战斗技能状态',()=>{
   for(const bad of [{...s,path:'god'},{...s,dust:-1},{...s,gear:{fake:0}},{...s,gear:{bambooSword:4}},{...s,equipped:{...s.equipped,armor:'bambooSword'}},{...s,equipped:{...s.equipped,artifact:'soulBanner'}},{...s,equipped:[]}])assert.throws(()=>validateSave(bad));
   run(s,'explore','bamboo');for(const fields of [{shield:-1},{shield:99999},{artifactCooldown:4},{pathUsed:2}])assert.throws(()=>validateSave({...s,pending:{...s.pending,...fields}}));
 });
-test('三途都能完成十八次突破，并得到对应结局',()=>{
-  for(const p of PATHS){const s=createGame();run(s,'choosePath',p.id);for(let n=0;n<18;n++){s.xp=attributes(s).xpNeed;s.energy=attributes(s).maxEnergy;run(s,'breakthrough');}assert.equal(s.ended,true);assert.equal(endingLabel(s),p.ending);}
+test('三途都能完成四十一次突破，并得到对应真仙结局',()=>{
+  for(const p of PATHS){const s=createGame();run(s,'choosePath',p.id);for(let n=0;n<TOTAL_BREAKTHROUGHS;n++){s.xp=attributes(s).xpNeed;s.energy=attributes(s).maxEnergy;run(s,'breakthrough');}assert.equal(s.ended,true);assert.equal(endingLabel(s),p.ending);}
 });
 test('三途随机战斗长局中的护盾、法宝与存档始终有效',()=>{
   for(const p of PATHS){const s=rich();run(s,'choosePath',p.id);run(s,'equipArtifact','spiritBell');run(s,'equip','bambooSword');run(s,'equip','linenRobe');let seed=17;const rng=()=>{seed=(seed*1664525+1013904223)>>>0;return seed/4294967296;};

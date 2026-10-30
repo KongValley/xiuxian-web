@@ -2,16 +2,17 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {createGame,act,attributes,validateSave} from '../public/engine.js';
 import {EQUIPMENT,EQUIPMENT_SETS,ARTIFACTS,PATHS,SLOTS,GRADES,gearBonus,equippedSet,setEffects,affinityBonus} from '../public/content.js';
+import { REALMS } from '../public/realms.js';
 const low=()=>0;
 function run(s,action,payload,rng=low){const result=act(s,action,payload,rng);assert.equal(result.ok,true,result.message);validateSave(s);return result;}
 function equipped(realm,path,pieces=3){
-  const s=createGame();s.realm=realm;s.path=path;s.stones=100000;s.dust=10000;
+  const s=createGame();s.realm=realm;s.path=path;s.ended=realm===REALMS.length-1;s.stones=100000;s.dust=10000;
   for(const item of EQUIPMENT.filter(i=>i.realm===realm).slice(0,pieces)){if(!Object.hasOwn(s.gear,item.id))run(s,'buyGear',item.id);run(s,'equip',item.id);}
   return s;
 }
-test('六境各有唯一的武器、法衣、佩饰，三途套装名称互异',()=>{
-  assert.equal(EQUIPMENT.length,18);assert.equal(EQUIPMENT_SETS.length,6);assert.equal(new Set(EQUIPMENT.map(i=>i.id)).size,18);
-  for(let realm=0;realm<6;realm++){
+test('各境都有唯一的武器、法衣、佩饰，三途套装名称互异',()=>{
+  assert.equal(EQUIPMENT.length,REALMS.length*3);assert.equal(EQUIPMENT_SETS.length,REALMS.length);assert.equal(new Set(EQUIPMENT.map(i=>i.id)).size,REALMS.length*3);
+  for(let realm=0;realm<REALMS.length;realm++){
     const items=EQUIPMENT.filter(i=>i.realm===realm);assert.deepEqual(items.map(i=>i.slot).sort(),Object.keys(SLOTS).sort());assert.ok(GRADES[items[0].tier]);
     assert.equal(new Set(PATHS.map(p=>setEffects(realm,p.id).name)).size,3);
     for(const item of items){assert.ok(item.price>0);if(realm){const prev=EQUIPMENT.find(i=>i.realm===realm-1&&i.slot===item.slot),key={weapon:'attack',armor:'hp',charm:'energy'}[item.slot];assert.ok(item.price>prev.price);assert.ok(item[key]>prev[key]);}}
@@ -25,7 +26,7 @@ test('同件装备按路径显化独立道纹，强化同步放大道纹，法�
   for(const item of ARTIFACTS)for(const p of PATHS)assert.deepEqual(gearBonus(item,2,p.id),gearBonus(item,2));
 });
 test('两件和三件门槛准确，混搭不同境界不触发整套效果',()=>{
-  for(const p of PATHS)for(let realm=0;realm<6;realm++){
+  for(const p of PATHS)for(let realm=0;realm<REALMS.length;realm++){
     const s=equipped(realm,p.id,1);assert.equal(equippedSet(s),null);
     const items=EQUIPMENT.filter(i=>i.realm===realm);if(!Object.hasOwn(s.gear,items[1].id))run(s,'buyGear',items[1].id);run(s,'equip',items[1].id);
     const two=equippedSet(s);assert.equal(two.pieces,2);assert.deepEqual(two.bonus,setEffects(realm,p.id).bonus);assert.equal(two.heal,0);assert.equal(two.drain,0);assert.equal(two.shield,0);
@@ -66,6 +67,6 @@ test('改修自动转换已穿装备道纹与套装效果，保留物品和淬�
   run(s,'choosePath','demon');assert.deepEqual(s.gear,gear);assert.deepEqual(s.equipped,slots);assert.equal(s.hp,45);assert.equal(s.energy,50);assert.equal(equippedSet(s).name,'诛神套装');assert.ok(equippedSet(s).drain>0);assert.equal(equippedSet(s).heal,0);
   run(s,'choosePath','yao');assert.equal(equippedSet(s).name,'万象套装');assert.ok(equippedSet(s).shield>0);assert.equal(equippedSet(s).drain,0);assert.equal(s.hp,45);
 });
-test('现有 v2 存档继续可读，不改物品 ID、强化等级、资源或战斗状态',()=>{
-  const s=equipped(2,'immortal');run(s,'upgradeGear','heavenSword');s.hp=100;s.energy=60;run(s,'explore','ruins');run(s,'guard');const old=JSON.parse(JSON.stringify(s));assert.deepEqual(validateSave(old),old);assert.equal(old.version,2);
+test('存档保留物品 ID、强化等级、资源或战斗状态',()=>{
+  const s=equipped(2,'immortal');run(s,'upgradeGear','heavenSword');s.hp=100;s.energy=60;run(s,'explore','ruins');run(s,'guard');const old=JSON.parse(JSON.stringify(s));assert.deepEqual(validateSave(old),old);assert.equal(old.version,3);
 });

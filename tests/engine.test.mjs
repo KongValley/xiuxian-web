@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createGame, act, attributes, validateSave, REGIONS } from '../public/engine.js';
+import { FINAL_REALM, TOTAL_BREAKTHROUGHS } from '../public/realms.js';
 const low = () => 0, high = () => 0.99;
 const run = (s,a,p,r=low) => { const result = act(s,a,p,r); assert.equal(result.ok,true,result.message); validateSave(s); return result; };
 
@@ -21,12 +22,12 @@ test('突破失败有保底加成，凝神丹在真正尝试后消耗',()=>{
   s.items.focus=1; run(s,'use','focus'); assert.equal(s.focus,true);
   assert.equal(act(s,'breakthrough').ok,false); assert.equal(s.focus,true);
   s.xp=100; run(s,'breakthrough',null,high);
-  assert.equal(s.stage,1); assert.equal(s.focus,false); assert.equal(s.pity,0); assert.equal(s.hp,124); assert.equal(s.energy,100);
+  assert.equal(s.stage,1); assert.equal(s.focus,false); assert.equal(s.pity,0); assert.equal(s.hp,104); assert.equal(s.energy,100);
 });
-test('可以经过全部十八次突破达成飞升结局',()=>{
+test('可以经过全部四十一次突破达成真仙结局',()=>{
   const s=createGame();
-  for(let n=0;n<18;n++){s.xp=attributes(s).xpNeed;s.energy=attributes(s).maxEnergy;run(s,'breakthrough');}
-  assert.equal(s.ended,true); assert.equal(s.realm,5); assert.equal(s.stage,2); assert.equal(s.stats.breaks,18);
+  for(let n=0;n<TOTAL_BREAKTHROUGHS;n++){s.xp=attributes(s).xpNeed;s.energy=attributes(s).maxEnergy;run(s,'breakthrough');}
+  assert.equal(s.ended,true); assert.equal(s.realm,FINAL_REALM); assert.equal(s.stage,0); assert.equal(s.stats.breaks,TOTAL_BREAKTHROUGHS);
   const before=structuredClone(s); assert.equal(act(s,'cultivate').ok,false); assert.deepEqual(s,before);
 });
 test('购买、服丹、炼丹和出售的资源闭环',()=>{
@@ -69,7 +70,7 @@ test('各类奇遇有风险分支，安全分支不受伤',()=>{
 });
 test('存档验证拒绝损坏或篡改数据，待定战斗可完整恢复',()=>{
   const s=createGame();run(s,'explore','bamboo');assert.deepEqual(validateSave(JSON.parse(JSON.stringify(s))),s);
-  for(const bad of [{...s,realm:6},{...s,xp:-1},{...s,hp:999},{...s,claimed:['not-a-quest']},{...s,logs:[{text:23}]},{...s,pending:{...s.pending,attack:999}}]) assert.throws(()=>validateSave(bad));
+  for(const bad of [{...s,realm:FINAL_REALM+1},{...s,xp:-1},{...s,hp:999},{...s,claimed:['not-a-quest']},{...s,logs:[{text:23}]},{...s,pending:{...s.pending,attack:999}}]) assert.throws(()=>validateSave(bad));
 });
 test('长时间战斗与服丹后存档仍有效，战斗记录有长度上限',()=>{
   const s=createGame();s.items.heal=100;run(s,'explore','bamboo');s.hp=80;

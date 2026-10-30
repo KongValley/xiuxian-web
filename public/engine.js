@@ -1,6 +1,6 @@
 import { PATHS, SLOTS, EQUIPMENT, ARTIFACTS, STARTER_GEAR, STARTER_ARTIFACTS, gearBonus, upgradeCost, equippedSet } from './content.js';
-export const REALMS = ['炼气', '筑基', '金丹', '元婴', '化神', '渡劫'];
-export const STAGES = ['初期', '中期', '后期'];
+import { REALMS, STAGES, FINAL_REALM, stageCount, stageLabel, growthRank, isAscension } from './realms.js';
+export { REALMS, STAGES } from './realms.js';
 export const BOOKS = [
   { id: 'breath', name: '太虚吐纳诀', type: '心法', grade: '凡品', desc: '调息凝神，引天地灵气入体。每级提升修炼收益 20%。', cost: 30, max: 5 },
   { id: 'sword', name: '青莲剑歌', type: '剑诀', grade: '灵品', desc: '一剑生青莲。每级增加 5 点攻击，强化御剑一击。', cost: 45, max: 5 },
@@ -15,7 +15,7 @@ export const ITEMS = [
 export const REGIONS = [
   { id: 'bamboo', name: '青竹林', subtitle: '竹风拂面，灵气初生', realm: 0, risk: '初入仙途', energy: 15, enemy: '山间灵狼', hp: 48, atk: 11, reward: 24, mark: '竹', color: 'green' },
   { id: 'valley', name: '落霞谷', subtitle: '霞光深处，自有机缘', realm: 1, risk: '筑基可入', energy: 20, enemy: '赤焰妖狐', hp: 150, atk: 28, reward: 65, mark: '霞', color: 'rose' },
-  { id: 'ruins', name: '玄天遗境', subtitle: '千载残碑，问道无声', realm: 2, risk: '金丹可入', energy: 25, enemy: '守境石傀', hp: 340, atk: 47, reward: 140, mark: '玄', color: 'blue' },
+  { id: 'ruins', name: '玄天遗境', subtitle: '千载残碑，问道无声', realm: 2, risk: '结丹可入', energy: 25, enemy: '守境石傀', hp: 340, atk: 47, reward: 140, mark: '玄', color: 'blue' },
   { id: 'sea', name: '无妄海', subtitle: '云海无涯，一念渡劫', realm: 3, risk: '元婴可入', energy: 30, enemy: '沧海蛟影', hp: 590, atk: 70, reward: 260, mark: '海', color: 'gold' }
 ];
 export const QUESTS = [
@@ -27,24 +27,24 @@ export const QUESTS = [
   { id: 'ascend', title: '长生可期', desc: '成功突破九次境界', key: 'breaks', goal: 9, reward: 300 }
 ];
 export function createGame(name = '云归客') {
-  return { version: 2, name: name.slice(0, 12), day: 1, realm: 0, stage: 0, xp: 0, hp: 100, energy: 100, stones: 88,
+  return { version: 3, name: name.slice(0, 12), day: 1, realm: 0, stage: 0, xp: 0, hp: 100, energy: 100, stones: 88,
     path:null, gear:{...STARTER_GEAR}, artifacts:{...STARTER_ARTIFACTS}, equipped:{weapon:null,armor:null,charm:null,artifact:null}, dust:0,
     books: { breath: 1, sword: 0, body: 0 }, items: { qi: 2, heal: 2, focus: 0, herb: 3 }, focus: false, pity: 0,
     stats: { cultivates: 0, explores: 0, breaks: 0, wins: 0, studies: 0 }, claimed: [], pending: null, ended: false,
     logs: [{ day: 1, type: 'story', text: '你自山下而来，携一卷《太虚吐纳诀》，于青云山结庐。从此，红尘渐远，仙途初启。' }] };
 }
-export function attributes(s) {
-  const rank = s.realm * 3 + s.stage;
+export function attributes(s) { return calculateAttributes(s,growthRank(s)); }
+function calculateAttributes(s,rank) {
   const bonus={attack:0,defense:0,hp:0,energy:0};
   for(const id of Object.values(s.equipped || {})) {
     const item=[...EQUIPMENT,...ARTIFACTS].find(x=>x.id===id);
     if(item){const b=gearBonus(item,(s.gear?.[id] ?? s.artifacts?.[id]) || 0,s.path);for(const k of Object.keys(bonus))bonus[k]+=b[k];}
   }
   const set=equippedSet(s);if(set)for(const [k,v]of Object.entries(set.bonus))bonus[k]+=v;
-  return { maxHp: Math.round((100 + rank * 24 + s.books.body * 20 + bonus.hp)*(s.path==='yao'?1.25:1)), maxEnergy: 100 + s.realm * 10 + bonus.energy + (s.path==='immortal'?20:0), attack: Math.round((14 + rank * 6 + s.books.sword * 5 + bonus.attack)*(s.path==='demon'?1.2:1)), defense: Math.max(0,3 + rank * 2 + s.books.body * 2 + bonus.defense + (s.path==='yao'?3:s.path==='demon'?-2:0)), xpNeed: Math.round(100 * (1 + rank * 0.6)), chance: Math.min(100, 80 - s.realm * 5 + (s.focus ? 20 : 0) + s.pity * 10 + (s.path==='immortal'?5:0)) };
+  return { maxHp: Math.round((100 + rank * 24 + s.books.body * 20 + bonus.hp)*(s.path==='yao'?1.25:1)), maxEnergy: 100 + s.realm * 10 + bonus.energy + (s.path==='immortal'?20:0), attack: Math.round((14 + rank * 6 + s.books.sword * 5 + bonus.attack)*(s.path==='demon'?1.2:1)), defense: Math.max(0,Math.round(3 + rank * 2 + s.books.body * 2 + bonus.defense + (s.path==='yao'?3:s.path==='demon'?-2:0))), xpNeed: Math.round(100 * (1 + rank * 0.6)), chance: Math.min(100, 80 - s.realm * 5 + (s.focus ? 20 : 0) + s.pity * 10 + (s.path==='immortal'?5:0)) };
 }
 export function endingLabel(s) { return PATHS.find(p=>p.id===s.path)?.ending || '羽化登仙'; }
-export function realmLabel(s) { return s.ended ? endingLabel(s) : REALMS[s.realm] + ' · ' + STAGES[s.stage]; }
+export function realmLabel(s) { return REALMS[s.realm] + ' · ' + (s.ended ? endingLabel(s) : stageLabel(s)); }
 export function cultivationRate(s) { return (1+s.books.breath*.2)*(s.path==='immortal'?1.15:1); }
 function clampVitals(s) { const a=attributes(s);s.hp=Math.min(s.hp,a.maxHp);s.energy=Math.min(s.energy,a.maxEnergy); }
 export function calendar(day) {
@@ -128,9 +128,9 @@ export function act(s, action, payload, rng = Math.random) {
       const success = rng() * 100 < a.chance; s.focus = false;
       if (success) {
         s.stats.breaks++; s.pity = 0; s.xp = 0;
-        if (s.stage === 2 && s.realm === 5) { s.ended = true; log(s, `九霄雷尽，一念天开。你终于越过生死，${endingLabel(s)}。万千山河，自此皆是故乡。`, 'break'); message = `恭喜道友，${endingLabel(s)}！`; }
+        if (isAscension(s)) { s.realm=FINAL_REALM;s.stage=0;s.ended = true;const next=attributes(s);s.hp=next.maxHp;s.energy=next.maxEnergy;log(s, `大乘圆满，引动飞升之劫。九霄雷尽，一念天开，你终于踏入真仙，${endingLabel(s)}。万千山河，自此皆是故乡。`, 'break'); message = `渡劫成功 · 真仙 · ${endingLabel(s)}`; }
         else {
-          if (s.stage < 2) s.stage++; else { s.stage = 0; s.realm++; }
+          if (s.stage + 1 < stageCount(s.realm)) s.stage++; else { s.stage = 0; s.realm++; }
           const next = attributes(s); s.hp = next.maxHp; s.energy = next.maxEnergy;
           log(s, `灵台澄明，桎梏尽碎！突破至${realmLabel(s)}，气血与灵力尽复。`, 'break'); message = `破境成功 · ${realmLabel(s)}`;
         }
@@ -299,14 +299,15 @@ export function act(s, action, payload, rng = Math.random) {
   return { ok: true, message };
 }
 export function validateSave(value) {
-  if (!value || ![1,2].includes(value.version)) throw new Error('存档版本不兼容');
+  if (!value || ![1,2,3].includes(value.version)) throw new Error('存档版本不兼容');
   const s = structuredClone(value);
+  const legacy=s.version<3;
   if(s.version===1){
     s.version=2;s.path=null;s.gear={...STARTER_GEAR};s.artifacts={...STARTER_ARTIFACTS};s.equipped={weapon:null,armor:null,charm:null,artifact:null};s.dust=0;
     if(s.pending?.kind==='combat'){s.pending.shield=0;s.pending.pathUsed=false;s.pending.artifactCooldown=0;}
   }
   if (typeof s.name !== 'string' || !s.name.trim() || s.name.length > 12) throw new Error('道号无效');
-  for (const [key, min, max] of [['day',1,10000000],['realm',0,5],['stage',0,2],['stones',0,100000000],['xp',0,100000],['hp',1,10000],['energy',0,10000],['pity',0,100]]) {
+  for (const [key, min, max] of [['day',1,10000000],['realm',0,legacy?5:FINAL_REALM],['stage',0,legacy?2:12],['stones',0,100000000],['xp',0,100000],['hp',1,10000],['energy',0,10000],['pity',0,100]]) {
     if (!Number.isInteger(s[key]) || s[key] < min || s[key] > max) throw new Error('存档数值无效');
   }
   for (const b of BOOKS) if (!Number.isInteger(s.books?.[b.id]) || s.books[b.id] < 0 || s.books[b.id] > b.max) throw new Error('功法数据无效');
@@ -324,10 +325,10 @@ export function validateSave(value) {
     if(!item||(!isArtifact&&item.slot!==slot)||!Object.hasOwn(isArtifact?s.artifacts:s.gear,id)||s.realm<item.realm||(item.path&&item.path!==s.path))throw new Error('装备栏与灵库不匹配');
   }
   for (const key of ['cultivates','explores','breaks','wins','studies']) if (!Number.isInteger(s.stats?.[key]) || s.stats[key] < 0) throw new Error('仙途记录无效');
-  if (typeof s.focus !== 'boolean' || typeof s.ended !== 'boolean' || (s.ended && (s.realm !== 5 || s.stage !== 2))) throw new Error('境界数据无效');
+  if (typeof s.focus !== 'boolean' || typeof s.ended !== 'boolean' || (legacy ? s.ended && (s.realm!==5||s.stage!==2) : s.stage>=stageCount(s.realm)||s.ended!==(s.realm===FINAL_REALM))) throw new Error('境界数据无效');
   if (!Array.isArray(s.claimed) || s.claimed.some(x => !QUESTS.some(q => q.id === x)) || new Set(s.claimed).size !== s.claimed.length) throw new Error('机缘记录无效');
   if (!Array.isArray(s.logs) || s.logs.length > 100 || s.logs.some(x => typeof x.text !== 'string' || x.text.length > 1000 || !Number.isInteger(x.day) || x.day < 1 || typeof x.type !== 'string')) throw new Error('日志数据无效');
-  const a = attributes(s);
+  const a = legacy?calculateAttributes(s,s.realm*3+s.stage):attributes(s);
   if (s.hp > a.maxHp || s.energy > a.maxEnergy || s.xp > a.xpNeed) throw new Error('角色属性超出上限');
   if (s.pending) {
     const e = s.pending, r = REGIONS.find(x => x.id === e.region);
@@ -338,6 +339,12 @@ export function validateSave(value) {
     } else if (e.kind === 'event') {
       if (!['sage','cave'].includes(e.variant) || typeof e.title !== 'string' || e.title.length > 60 || typeof e.desc !== 'string' || e.desc.length > 500) throw new Error('奇遇数据无效');
     } else throw new Error('历练状态无效');
+  }
+  if(legacy){
+    const fraction=s.xp/a.xpNeed;
+    if(s.ended){s.realm=FINAL_REALM;s.stage=0;s.xp=0;}
+    else {if(s.realm===0)s.stage=[0,6,12][s.stage];else if(s.realm===5)s.realm=7;s.xp=Math.round(fraction*attributes(s).xpNeed);}
+    s.version=3;
   }
   return s;
 }

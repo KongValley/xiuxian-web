@@ -22,16 +22,28 @@ export const EQUIPMENT = [
   {id:'spiritPendant',name:'万象佩',slot:'charm',mark:'象',tier:4,realm:4,price:1600,energy:56,attack:16,desc:'神游万象，心照寰宇。'},
   {id:'tribulationSword',name:'九霄剑',slot:'weapon',mark:'霄',tier:5,realm:5,price:2600,attack:95,desc:'九霄雷霆为锋，直斩天门。'},
   {id:'thunderRobe',name:'天劫仙衣',slot:'armor',mark:'劫',tier:5,realm:5,price:2800,hp:230,defense:28,desc:'雷劫淬衣，历万劫而不损。'},
-  {id:'chaosRing',name:'混元环',slot:'charm',mark:'混',tier:5,realm:5,price:3000,energy:75,attack:24,desc:'混元归一，长生咫尺。'}
+  {id:'chaosRing',name:'混元环',slot:'charm',mark:'混',tier:5,realm:5,price:3000,energy:75,attack:24,desc:'混元归一，长生咫尺。'},
+  {id:'unitySword',name:'合道剑',slot:'weapon',mark:'合',tier:6,realm:6,price:4300,attack:130,desc:'形神合一，一剑贯通天地。'},
+  {id:'unityRobe',name:'乾坤法衣',slot:'armor',mark:'乾',tier:6,realm:6,price:4600,hp:310,defense:37,desc:'乾坤入袖，形神同护。'},
+  {id:'unityPendant',name:'两仪佩',slot:'charm',mark:'仪',tier:6,realm:6,price:4900,energy:95,attack:33,desc:'两仪相济，法力生生不息。'},
+  {id:'mahayanaSword',name:'凌天剑',slot:'weapon',mark:'凌',tier:7,realm:7,price:6700,attack:175,desc:'大乘锋芒，剑指飞升之门。'},
+  {id:'mahayanaRobe',name:'万劫法衣',slot:'armor',mark:'劫',tier:7,realm:7,price:7100,hp:410,defense:48,desc:'万劫炼真身，静待飞升之雷。'},
+  {id:'mahayanaPendant',name:'升灵佩',slot:'charm',mark:'升',tier:7,realm:7,price:7500,energy:120,attack:45,desc:'灵光通天，护道大乘。'},
+  {id:'immortalSword',name:'太初仙剑',slot:'weapon',mark:'初',tier:8,realm:8,price:10000,attack:230,desc:'飞升之后，初识仙道剑意。'},
+  {id:'immortalRobe',name:'真仙霓衣',slot:'armor',mark:'仙',tier:8,realm:8,price:10500,hp:540,defense:62,desc:'仙霞凝衣，尘劫不染。'},
+  {id:'immortalPendant',name:'天元仙佩',slot:'charm',mark:'元',tier:8,realm:8,price:11000,energy:150,attack:60,desc:'仙元为引，留作新途之证。'}
 ];
-export const GRADES = ['凡品','灵品','宝品','玄品','道品','劫品'];
+export const GRADES = ['凡品','灵品','宝品','玄品','道品','虚品','合真','大乘','仙品'];
 export const EQUIPMENT_SETS = [
   {realm:0,name:'青云',immortal:'清风',demon:'血荆',yao:'山灵'},
   {realm:1,name:'流霞',immortal:'流霞',demon:'赤煞',yao:'玄鳞'},
   {realm:2,name:'太虚',immortal:'太虚',demon:'噬魂',yao:'苍龙'},
   {realm:3,name:'归墟',immortal:'归墟',demon:'幽冥',yao:'荒古'},
   {realm:4,name:'天衍',immortal:'天衍',demon:'诛神',yao:'万象'},
-  {realm:5,name:'九霄',immortal:'九霄',demon:'灭世',yao:'混元'}
+  {realm:5,name:'九霄',immortal:'九霄',demon:'灭世',yao:'混元'},
+  {realm:6,name:'合道',immortal:'合道',demon:'六欲',yao:'万灵'},
+  {realm:7,name:'凌天',immortal:'凌天',demon:'天魔',yao:'圣灵'},
+  {realm:8,name:'太初',immortal:'太初',demon:'无相',yao:'真灵'}
 ];
 export function affinityBonus(item,level=0,path=null){
   if(!item.slot||!PATHS.some(p=>p.id===path))return {attack:0,defense:0,hp:0,energy:0};
