@@ -8,6 +8,8 @@ import { renderArtifactLibrary, artifactDetails } from './artifact-library.js';
 import type { ArtifactFilters } from './artifact-library.js';
 import { artifactPowerText, artifactStageLabel } from './artifacts.js';
 import { findManual, manualEffects, manualEffectText, MAX_ACTIVE_BOOKS } from './manuals.js';
+import { renderRoots, rootEffectsText } from './roots-view.js';
+import { canPayRootCost, findElement, ROOT_GRADES, ROOT_LEVEL_CAPS, ROOT_PROMOTIONS, rootCostText, rootLabel, rootPromotionReason, rootReshapeCost } from './roots.js';
 
 const paths: Record<string,string> = {
   home: '<path d="m3 11 9-8 9 8M5 10v10h14V10M9 20v-7h6v7"/>',
@@ -55,6 +57,7 @@ const navs = [
   ['bag','随身行囊','bag','05','一囊灵物，半卷闲书，伴你走过漫漫仙途。'],
   ['gear','灵装法宝','sword','06','灵器护身，法宝随心，一身所系，皆是道途。'],
   ['paths','三途问道','lotus','07','仙魔妖三途，并无高下。道心所向，便是归处。'],
+  ['roots','灵根养成','leaf','08','五行归于一身，凡根亦可问长生。'],
 ];
 const actionButton = (action: string, text: string, payload = '', kind = 'primary', disabled = false) => `<button class="btn ${kind}" data-action="${action}" data-value="${payload}"${disabled ? ' disabled' : ''}>${text}</button>`;
 
@@ -79,6 +82,7 @@ function renderCharacter() {
   <dl class="attributes"><div><dt>攻击</dt><dd>${a.attack}</dd></div><div><dt>防御</dt><dd>${a.defense}</dd></div><div><dt>道龄</dt><dd>${Math.floor((state.day - 1) / 360)} 年 ${((state.day - 1) % 360)} 日</dd></div><div><dt>功法</dt><dd>${state.activeBooks.length} / 10</dd></div></dl>
   <div class="wealth">${icon('coin')}<span>灵石</span><strong>${state.stones.toLocaleString()}</strong><small>枚</small></div>
   <div class="loadout-summary"><button data-tab="paths">${path ? path.name+' · '+path.skill : '仙 / 魔 / 妖 · 选择路径'} <span>↗</span></button><button data-tab="gear">${state.equipped.artifact ? ARTIFACTS.find(i=>i.id===state.equipped.artifact)!.name : '前往装备灵器与法宝'} <span>↗</span></button></div>
+  <button class="root-summary" data-tab="roots"><span>${state.roots.primary?findElement(state.roots.primary)!.mark:'灵'}</span><div>${rootLabel(state)}<small>${state.roots.primary?'纯度 '+state.roots.purity+'% · 前往养根 ↗':'免费测灵 · 开启五行养成 ↗'}</small></div></button>
   <p class="character-note">${state.focus ? '凝神之效 · 下次突破成功率 +20%' : state.xp >= a.xpNeed ? '修为已圆满，正是破境好时机' : state.energy < 15 ? '灵力渐乏，不妨听泉静养一日' : '心若澄明，处处皆是修行'}</p>`;
 }
 function logMarkup(log: LogEntry) {
@@ -110,6 +114,7 @@ function renderHome() {
   const rate = cultivationRate(state);
   return `${state.ended ? `<div class="panel ending"><div class="dialog-eyebrow">THE END · A NEW BEGINNING</div><h2>一念天开，${endingLabel(state)}</h2><p>你于第 ${state.day} 日渡尽雷劫，终于${endingLabel(state)}。<br>回首来时青山，万千山河，皆是故乡。</p><button class="btn gold" data-ui="logs">重读来时路</button></div>` : ''}
   ${pendingBanner()}
+  ${!state.roots.primary?'<div class="path-invitation"><span>凡根亦能问长生，先测一回本命灵根。</span><button class="text-link" data-tab="roots">免费测灵 · 灵根养成 ↗</button></div>':''}
   ${!state.path&&!state.ended ? '<div class="path-invitation"><span>大道三千，你欲以何身问长生？</span><button class="text-link" data-tab="paths">仙 · 魔 · 妖，择道启程 ↗</button></div>' : ''}
   <div class="hero"><div class="hero-content"><div class="location">${icon('pin')}青云山 · 无尘洞府</div><h2>一念入道<br>万法归心</h2><p>半卷道经，一壶清茶，山中自有长生路。</p></div><span class="hero-stamp">大道至简</span><div class="hero-bottom"><span>${icon('leaf')}灵气充盈</span><span>${icon('cloud')}${PATHS.find(p=>p.id===state.path)?.motto || '洞天福地 · 道心待定'}</span></div><span class="hero-caption">青山不语，静候归人</span></div>
   ${sectionHeading('lotus','日常修行','日有所进，道有所成')}
@@ -117,6 +122,7 @@ function renderHome() {
     if (action === 'cultivate') reward = `修为 +${Math.round(17 * rate)}～${Math.round(23 * rate)}`;
     if (action === 'retreat') reward = `修为 +${Math.round(17 * rate * 3.2)}～${Math.round(23 * rate * 3.2)}`;
     if (action === 'gather' && state.realm) reward = `凝露草 +1～3 · 灵石 +${5+state.realm*3}～${12+state.realm*3}`;
+    if(action==='gather')reward+=' · 灵魄 +1';
     return `<article class="panel practice-card"><div class="card-top"><span class="action-icon">${icon(i)}</span><div><h3>${title}</h3><small>${en}</small></div></div><p>${desc}</p><div class="card-meta"><span>${reward}</span><span>${cost}</span></div><div class="card-action"><span>${note}</span>${actionButton(action, label + icon('arrow'), '', kind, state.ended&&!['rest','gather'].includes(action))}</div></article>`;
   }).join('')}</div>
   <div class="break-card"><div class="break-symbol"><span>境</span></div><div class="break-info"><h3>${state.ended ? '仙道初成，已入真仙' : isAscension(state)?'大乘圆满 · 准备渡飞升之劫':full ? '修为圆满 · 可尝试破境' : '厚积薄发，静待破境之时'}</h3><p>${state.ended?'已渡劫飞升':`当前修为 ${state.xp} / ${a.xpNeed} · 成功率 ${a.chance}%${state.focus?' · 凝神护持':''}`}</p></div><button class="btn ${full ? 'gold' : 'outline'}" data-ui="breakthrough"${state.ended ? ' disabled' : ''}>${isAscension(state)?'渡劫飞升':full ? '尝试突破' : '破境详情'} ${icon('arrow')}</button></div>
@@ -197,14 +203,14 @@ function renderPaths() {
   return `${pendingBanner()}${intro('仙魔妖途，道由心生','同一片山河，三种问道之身。每条路都有天赋、本命神通与长生结局；九境法宝均为三途通用。','THREE PATHS · ONE ETERNAL JOURNEY')}<div class="path-policy"><span class="status-dot"></span>${state.path?'当前路径：'+PATHS.find(p=>p.id===state.path)!.name+' · 改修需 100 灵石与 1 日':'尚未定道 · 首次选择免费，保留全部现有进度'}</div><div class="path-cards">${PATHS.map(p=>`<article class="panel path-card ${p.color} ${state.path===p.id?'chosen':''}"><div class="path-card-heading"><span class="path-seal">${p.mark}</span><div><div class="dialog-eyebrow">${p.id.toUpperCase()}</div><h2>${p.motto}</h2><p>${p.desc}</p></div></div><div class="path-detail"><span>天赋</span><p>${p.passive}</p></div><div class="path-detail"><span>神通</span><p><strong>${p.skill}</strong> · ${p.skillDesc}</p></div><div class="path-detail"><span>法宝</span><p>九境各三十种 · 不限路径，自由炼化与淬炼</p></div><div class="path-bottom"><span>终途 · ${p.ending}</span><button class="btn ${state.path===p.id?'secondary':'outline'}" data-ui="choosePath" data-value="${p.id}"${state.path===p.id?' disabled':''}>${state.path===p.id?'此心已定':state.path?'改修此道':'踏入'+p.name} ${state.path===p.id?'✓':icon('arrow')}</button></div></article>`).join('')}</div><p class="soundless-note">改修保留境界、功法与全部藏品，会保留已炼化的通用法宝，并封存异途功法（重数保留）。路径或装备上限提升后，需静养或服丹恢复；改修与换装不治疗伤势。历练途中不可改修。</p>`;
 }
 function renderBag() {
-  return `${intro('一囊山色，半卷清风','丹药温养身心，灵材汇聚山野。善用随身之物，仙途自有余裕。','YOUR BELONGINGS')}${sectionHeading('bag','随身灵物',`共 ${Object.values(state.items).reduce((a,b)=>a+b,0)} 件物品`)}<div class="item-grid">${ITEMS.map(i=>`<article class="panel item-card"><div class="item-icon ${i.id}">${i.label}</div><h3>${i.name} <small style="color:#9eaa90;font-family:var(--sans)">× ${state.items[i.id]}</small></h3><p>${i.desc}</p><div class="item-details"><span class="tag">${i.kind}</span>${actionButton(i.id === 'herb' ? 'sell' : 'use',i.id === 'herb' ? '售出一株' : '服用一枚',i.id,'outline',state.items[i.id] === 0)}</div></article>`).join('')}</div><div class="panel alchemy-panel"><span class="action-icon">${icon('kettle')}</span><div><h3>草木为引，文火成丹</h3><p>凝露草 ×3 ＋ 灵力 10 → 聚气丹 ×1 · 耗时 1 日</p></div>${actionButton('alchemy','开炉炼丹','','secondary',state.items.herb < 3)}</div>`;
+  return `${intro('一囊山色，半卷清风','丹药温养身心，灵材汇聚山野。善用随身之物，仙途自有余裕。','YOUR BELONGINGS')}${sectionHeading('bag','随身灵物',`共 ${Object.values(state.items).reduce((a,b)=>a+b,0)} 件物品`)}<div class="item-grid">${ITEMS.map(i=>`<article class="panel item-card"><div class="item-icon ${i.id}">${i.label}</div><h3>${i.name} <small style="color:#9eaa90;font-family:var(--sans)">× ${state.items[i.id]}</small></h3><p>${i.desc}</p><div class="item-details"><span class="tag">${i.kind}</span>${actionButton(i.id === 'herb' ? 'sell' : 'use',i.id === 'herb' ? '售出一株' : '服用一枚',i.id,'outline',state.items[i.id] === 0)}</div></article>`).join('')}</div><div class="panel alchemy-panel"><div><h3>养根灵材</h3><p>灵魄 ${state.roots.essence} · 洗灵露 ${state.roots.dew} · 随仙途自动存档</p></div><button class="btn outline" data-tab="roots">前往灵根养成 ↗</button></div><div class="panel alchemy-panel"><span class="action-icon">${icon('kettle')}</span><div><h3>草木为引，文火成丹</h3><p>凝露草 ×3 ＋ 灵力 10 → 聚气丹 ×1 · 耗时 1 日</p></div>${actionButton('alchemy','开炉炼丹','','secondary',state.items.herb < 3)}</div>`;
 }
 function render() {
   const info = navs.find(n => n[0] === tab);
   if(!info)return;
   $('#page-label').textContent = info[1]; $('#page-title').textContent = info[1]; $('#page-desc').textContent = info[4];
   $('#calendar').textContent = calendar(state.day);
-  $('#content').innerHTML = ({ home:renderHome, explore:renderExplore, books:renderBooks, shop:renderShop, bag:renderBag, gear:renderGear, paths:renderPaths } as Record<string,()=>string>)[tab]();
+  $('#content').innerHTML = ({ home:renderHome, explore:renderExplore, books:renderBooks, shop:renderShop, bag:renderBag, gear:renderGear, paths:renderPaths, roots:()=>pendingBanner()+renderRoots(state) } as Record<string,()=>string>)[tab]();
   renderNavigation(); renderCharacter(); renderLogs();
   document.querySelectorAll<HTMLElement>('[data-icon]').forEach(el => { el.innerHTML = icon(el.dataset.icon || 'leaf'); });
 }
@@ -218,6 +224,7 @@ function showGuide() {
   const steps = [['壹','吐纳入道','在洞府吐纳或闭关提升修为；灵力不足时听泉静养。所有时间都由你的选择推进。'],['贰','修为圆满，尝试破境','修为满后消耗 20 灵力突破，凝神丹能提高成功率。失败保留八成修为，后续成功率逐次增加 10%。'],['叁','行万里路，求一线缘','进入山河历练，选择奇遇或迎战妖兽。战斗中可以普攻、御剑、防守回灵或遁走；服丹会消耗一回合。'],['肆','灵材炼丹，功法立身','采药与历练获得灵石灵材，在坊市购丹、藏经阁按路径与境界选择功法，每境每途十卷，最多兼修十本，支持封存与转修。行囊中三株凝露草可炼一枚聚气丹。'],['伍','八境问道，渡劫登仙','炼气、筑基、结丹、元婴、化神、炼虚、合体、大乘，每境统一分初期、中期、后期、圆满。大乘圆满后渡飞升天劫，踏入真仙，共需 '+TOTAL_BREAKTHROUGHS+' 次成功破境。']];
   steps.push(['陆','灵器护身，法宝随行','灵装法宝中可装备武器、法衣、佩饰与一件法宝。胜敌必得灵砂，可能掉装备；遗藏可能出法宝。灵砂与灵石可淬炼三次，法宝在战斗中使用，冷却三回合。'],['柒','仙魔妖途，道心自选','三途问道中首次择道免费。仙修擅回元，魔修擅爆发汲血，妖修擅体魄护盾。本命神通每场一次；改修需 100 灵石与一日，法宝保留，异途功法封存。最终结局随路径变化。']);
   steps.push(['捌','各境灵装，道纹相应','每个境界有武器、法衣、佩饰各一件，同境两件激活属性加成，三件再激活路径效果：仙修承受敌方回合后存活可回元，魔修额外汲血，妖修开战获得护盾。道纹和套装随改修转换；装备图鉴可查看三途效果，坊市可按境界选购。']);
+  steps.push(['玖','五行养根，凡根成仙','灵根养成中首次测灵免费自选主灵根，五行均可培养；灵魄来自采药、历练或引灵，洗灵露用五株凝露草炼制。洗炼提高纯度，达到境界、纯度与总级要求可晋品。重塑保留级数、纯度与品质；历练中不可养根。']);
   showDialog('修行指南', `<div class="dialog-eyebrow">A SMALL GUIDE FOR A LONG JOURNEY</div>${steps.map(([n,t,d])=>`<div class="guide-step"><span>${n}</span><div><h3>${t}</h3><p>${d}</p></div></div>`).join('')}<div class="warning-note">每次操作后自动保存在当前浏览器。跨设备游玩请导出存档，再于另一设备导入。无强制等待，无离线惩罚。</div>`, '<button class="btn primary" data-ui="close">心中有道，启程修行</button>');
 }
 function showSettings() {
@@ -283,6 +290,19 @@ document.addEventListener('click', event => {
     return;
   }
   switch (button.dataset.ui) {
+    case 'root-awaken': {
+      const e=findElement(button.dataset.value||'');if(!e||state.roots.primary)break;
+      showDialog('测灵定根 · '+e.name,`<div class="dialog-eyebrow">一念相应 · 五行皆可兼养</div><p>${e.desc}</p><p>免费立${e.name}为主，获得一级培养和 10% 初始纯度。主灵根的五行专属收益按 1.5 倍计算，后续可培养其他五行并付费重塑。</p><div class="warning-note">灵根品质从凡灵根起，依次可晋升真灵根、天灵根、仙灵根。测灵不消耗材料，不改变功法、法宝与修行路径；增加上限不恢复当前气血灵力。</div>`,actionButton('rootAwaken','定下'+e.name,e.id,'primary',!!state.pending));break;
+    }
+    case 'root-reshape': {
+      const e=findElement(button.dataset.value||'');if(!e||!state.roots.primary||e.id===state.roots.primary)break;
+      const c=rootReshapeCost(state.roots.tier),next={...state,roots:{...state.roots,primary:e.id}};
+      showDialog('重塑主灵根',`<p>将主灵根由${findElement(state.roots.primary)!.name}改为${e.name}。</p><div class="roots-dialog-effects">当前：${rootEffectsText(state)}<br><br>重塑后：${rootEffectsText(next)}</div><p>消耗 ${rootCostText(c)}。</p><div class="warning-note">五行培养级数、纯度与品质全部保留，主灵根的 1.5 倍权重随之转换。不恢复气血灵力；超过新上限的部分将裁剪。目标五行必须已培养至少一级。</div>`,actionButton('rootReshape','确认重塑',e.id,'primary',!!state.pending||state.roots.levels[e.id]<1||!canPayRootCost(state,c)));break;
+    }
+    case 'root-promote': {
+      const p=ROOT_PROMOTIONS[state.roots.tier];if(!p)break;
+      showDialog('灵根蜕变',`<p>将${ROOT_GRADES[state.roots.tier]}晋升为${ROOT_GRADES[state.roots.tier+1]}。五行培养上限从 ${ROOT_LEVEL_CAPS[state.roots.tier]} 提升至 ${ROOT_LEVEL_CAPS[state.roots.tier+1]} 级，同时提高修炼收益与破境率。</p><p>消耗 ${rootCostText(p)}。</p><div class="warning-note">晋升必定成功，保留全部培养级数与纯度；不恢复当前气血或灵力。</div>`,actionButton('rootPromote','确认晋升','','gold',!!state.pending||!!rootPromotionReason(state)||!canPayRootCost(state,p)));break;
+    }
     case 'artifact-details': {
       const item=ARTIFACTS.find(i=>i.id===button.dataset.value);if(item)showDialog(item.name+' · 阶段成长',artifactDetails(item,state));break;
     }
