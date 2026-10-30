@@ -1,9 +1,11 @@
+import type { GameState, PathId, RandomSource, Bonus } from '../src/types.js';
+import { battle, activeSet } from './helpers.js';
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { createGame, act, attributes, validateSave, REGIONS } from '../public/engine.js';
-import { FINAL_REALM, TOTAL_BREAKTHROUGHS } from '../public/realms.js';
+import { createGame, act, attributes, validateSave, REGIONS } from '../src/engine.js';
+import { FINAL_REALM, TOTAL_BREAKTHROUGHS } from '../src/realms.js';
 const low = () => 0, high = () => 0.99;
-const run = (s,a,p,r=low) => { const result = act(s,a,p,r); assert.equal(result.ok,true,result.message); validateSave(s); return result; };
+const run = (s: GameState,a: string,p?: string|null,r: RandomSource=low) => { const result = act(s,a,p,r); assert.equal(result.ok,true,result.message); validateSave(s); return result; };
 
 test('修炼消耗时间和灵力，满修为后不能重复扣除资源',()=>{
   const s=createGame(); run(s,'cultivate'); assert.equal(s.day,2); assert.equal(s.energy,90); assert.equal(s.xp,20);
@@ -22,9 +24,9 @@ test('突破失败有保底加成，凝神丹在真正尝试后消耗',()=>{
   s.items.focus=1; run(s,'use','focus'); assert.equal(s.focus,true);
   assert.equal(act(s,'breakthrough').ok,false); assert.equal(s.focus,true);
   s.xp=100; run(s,'breakthrough',null,high);
-  assert.equal(s.stage,1); assert.equal(s.focus,false); assert.equal(s.pity,0); assert.equal(s.hp,104); assert.equal(s.energy,100);
+  assert.equal(s.stage,1); assert.equal(s.focus,false); assert.equal(s.pity,0); assert.equal(s.hp,124); assert.equal(s.energy,100);
 });
-test('可以经过全部四十一次突破达成真仙结局',()=>{
+test('可以经过全部三十二次突破达成真仙结局',()=>{
   const s=createGame();
   for(let n=0;n<TOTAL_BREAKTHROUGHS;n++){s.xp=attributes(s).xpNeed;s.energy=attributes(s).maxEnergy;run(s,'breakthrough');}
   assert.equal(s.ended,true); assert.equal(s.realm,FINAL_REALM); assert.equal(s.stage,0); assert.equal(s.stats.breaks,TOTAL_BREAKTHROUGHS);
@@ -46,13 +48,13 @@ test('任务只可领奖一次，功法提升与属性联动',()=>{
 });
 test('历练地点按境界解锁，未完成奇遇前不能做其他行动',()=>{
   const s=createGame();assert.equal(act(s,'explore','valley').ok,false);
-  run(s,'explore','bamboo',()=>0.5); assert.equal(s.pending.kind,'event');
+  run(s,'explore','bamboo',()=>0.5); assert.equal(s.pending!.kind,'event');
   const before=structuredClone(s);assert.equal(act(s,'cultivate').ok,false);assert.deepEqual(s,before);
   run(s,'choice','accept');assert.equal(s.items.focus,1);assert.equal(s.stats.explores,1);assert.equal(s.pending,null);
 });
 test('战斗技能、防御、服药、胜利和逃离都可正确结算',()=>{
-  const s=createGame();run(s,'explore','bamboo');assert.equal(s.pending.kind,'combat');
-  run(s,'skill');assert.equal(s.pending.hp,26);assert.equal(s.energy,73);
+  const s=createGame();run(s,'explore','bamboo');assert.equal(s.pending!.kind,'combat');
+  run(s,'skill');assert.equal(battle(s).hp,26);assert.equal(s.energy,73);
   run(s,'guard');assert.equal(s.energy,85);
   run(s,'use','heal');assert.equal(s.items.heal,1);assert.ok(s.hp<100);
   run(s,'skill');run(s,'attack');assert.equal(s.pending,null);assert.equal(s.stats.wins,1);assert.equal(s.stats.explores,1);
@@ -74,7 +76,7 @@ test('存档验证拒绝损坏或篡改数据，待定战斗可完整恢复',()=
 });
 test('长时间战斗与服丹后存档仍有效，战斗记录有长度上限',()=>{
   const s=createGame();s.items.heal=100;run(s,'explore','bamboo');s.hp=80;
-  for(let n=0;n<30;n++){run(s,'use','heal');assert.ok(s.pending.turns.length<=8);}
+  for(let n=0;n<30;n++){run(s,'use','heal');assert.ok(battle(s).turns.length<=8);}
 });
 test('随机长局不会让资源为负或破坏存档',()=>{
   let seed=42;const rng=()=>{seed=(seed*1664525+1013904223)>>>0;return seed/4294967296;};

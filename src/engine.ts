@@ -1,5 +1,6 @@
 import { PATHS, SLOTS, EQUIPMENT, ARTIFACTS, STARTER_GEAR, STARTER_ARTIFACTS, gearBonus, upgradeCost, equippedSet } from './content.js';
 import { REALMS, STAGES, FINAL_REALM, stageCount, stageLabel, growthRank, isAscension } from './realms.js';
+import type { ActionResult, Bonus, EquipmentItem, ArtifactItem, GameState, RandomSource, Stat } from './types.js';
 export { REALMS, STAGES } from './realms.js';
 export const BOOKS = [
   { id: 'breath', name: '太虚吐纳诀', type: '心法', grade: '凡品', desc: '调息凝神，引天地灵气入体。每级提升修炼收益 20%。', cost: 30, max: 5 },
@@ -26,55 +27,58 @@ export const QUESTS = [
   { id: 'master', title: '道法自然', desc: '研习功法五次', key: 'studies', goal: 5, reward: 120 },
   { id: 'ascend', title: '长生可期', desc: '成功突破九次境界', key: 'breaks', goal: 9, reward: 300 }
 ];
-export function createGame(name = '云归客') {
-  return { version: 3, name: name.slice(0, 12), day: 1, realm: 0, stage: 0, xp: 0, hp: 100, energy: 100, stones: 88,
+export function createGame(name = '云归客'): GameState {
+  return { version: 4, name: name.slice(0, 12), day: 1, realm: 0, stage: 0, xp: 0, hp: 100, energy: 100, stones: 88,
     path:null, gear:{...STARTER_GEAR}, artifacts:{...STARTER_ARTIFACTS}, equipped:{weapon:null,armor:null,charm:null,artifact:null}, dust:0,
     books: { breath: 1, sword: 0, body: 0 }, items: { qi: 2, heal: 2, focus: 0, herb: 3 }, focus: false, pity: 0,
     stats: { cultivates: 0, explores: 0, breaks: 0, wins: 0, studies: 0 }, claimed: [], pending: null, ended: false,
     logs: [{ day: 1, type: 'story', text: '你自山下而来，携一卷《太虚吐纳诀》，于青云山结庐。从此，红尘渐远，仙途初启。' }] };
 }
-export function attributes(s) { return calculateAttributes(s,growthRank(s)); }
-function calculateAttributes(s,rank) {
-  const bonus={attack:0,defense:0,hp:0,energy:0};
+export function attributes(s: GameState) { return calculateAttributes(s,growthRank(s)); }
+function calculateAttributes(s: GameState,rank: number) {
+  const bonus: Bonus={attack:0,defense:0,hp:0,energy:0};
   for(const id of Object.values(s.equipped || {})) {
+    if(!id)continue;
     const item=[...EQUIPMENT,...ARTIFACTS].find(x=>x.id===id);
-    if(item){const b=gearBonus(item,(s.gear?.[id] ?? s.artifacts?.[id]) || 0,s.path);for(const k of Object.keys(bonus))bonus[k]+=b[k];}
+    if(item){const b=gearBonus(item,(s.gear?.[id] ?? s.artifacts?.[id]) || 0,s.path);for(const k of Object.keys(bonus) as Stat[])bonus[k]+=b[k];}
   }
-  const set=equippedSet(s);if(set)for(const [k,v]of Object.entries(set.bonus))bonus[k]+=v;
+  const set=equippedSet(s);if(set)for(const [k,v]of Object.entries(set.bonus))bonus[k as Stat]+=v;
   return { maxHp: Math.round((100 + rank * 24 + s.books.body * 20 + bonus.hp)*(s.path==='yao'?1.25:1)), maxEnergy: 100 + s.realm * 10 + bonus.energy + (s.path==='immortal'?20:0), attack: Math.round((14 + rank * 6 + s.books.sword * 5 + bonus.attack)*(s.path==='demon'?1.2:1)), defense: Math.max(0,Math.round(3 + rank * 2 + s.books.body * 2 + bonus.defense + (s.path==='yao'?3:s.path==='demon'?-2:0))), xpNeed: Math.round(100 * (1 + rank * 0.6)), chance: Math.min(100, 80 - s.realm * 5 + (s.focus ? 20 : 0) + s.pity * 10 + (s.path==='immortal'?5:0)) };
 }
-export function endingLabel(s) { return PATHS.find(p=>p.id===s.path)?.ending || '羽化登仙'; }
-export function realmLabel(s) { return REALMS[s.realm] + ' · ' + (s.ended ? endingLabel(s) : stageLabel(s)); }
-export function cultivationRate(s) { return (1+s.books.breath*.2)*(s.path==='immortal'?1.15:1); }
-function clampVitals(s) { const a=attributes(s);s.hp=Math.min(s.hp,a.maxHp);s.energy=Math.min(s.energy,a.maxEnergy); }
-export function calendar(day) {
+export function endingLabel(s: GameState) { return PATHS.find(p=>p.id===s.path)?.ending || '羽化登仙'; }
+export function realmLabel(s: GameState) { return REALMS[s.realm] + ' · ' + (s.ended ? endingLabel(s) : stageLabel(s)); }
+export function cultivationRate(s: GameState) { return (1+s.books.breath*.2)*(s.path==='immortal'?1.15:1); }
+function clampVitals(s: GameState) { const a=attributes(s);s.hp=Math.min(s.hp,a.maxHp);s.energy=Math.min(s.energy,a.maxEnergy); }
+export function calendar(day: number) {
   return `道历${Math.floor((day - 1) / 360) + 1}年 · ${['春', '夏', '秋', '冬'][Math.floor(((day - 1) % 360) / 90)]} · 第${(day - 1) % 360 + 1}日`;
 }
-function log(s, text, type = 'normal') { s.logs.unshift({ day: s.day, type, text }); s.logs = s.logs.slice(0, 100); }
-function gainXp(s, n) { const a = attributes(s), gain = Math.min(n, a.xpNeed - s.xp); s.xp += gain; return gain; }
-function rand(rng, min, max) { return Math.floor(rng() * (max - min + 1)) + min; }
-function spend(s, energy, days = 1) { if (s.energy < energy) return false; s.energy -= energy; s.day += days; return true; }
-function fail(message) { return { ok: false, message }; }
-function dropLoot(s, catalog, rng) {
+function log(s: GameState, text: string, type = 'normal') { s.logs.unshift({ day: s.day, type, text }); s.logs = s.logs.slice(0, 100); }
+function gainXp(s: GameState, n: number) { const a = attributes(s), gain = Math.min(n, a.xpNeed - s.xp); s.xp += gain; return gain; }
+function rand(rng: RandomSource, min: number, max: number) { return Math.floor(rng() * (max - min + 1)) + min; }
+function spend(s: GameState, energy: number, days = 1) { if (s.energy < energy) return false; s.energy -= energy; s.day += days; return true; }
+function fail(message: string): ActionResult { return { ok: false, message }; }
+function dropLoot(s: GameState, catalog: EquipmentItem[]|ArtifactItem[], rng: RandomSource) {
   const pool=catalog.filter(i=>i.realm<=s.realm && (!i.path || i.path===s.path));
   if(!pool.length)return '';
   const item=pool[rand(rng,0,pool.length-1)], owned=catalog===EQUIPMENT?s.gear:s.artifacts;
   if(Object.hasOwn(owned,item.id)){s.dust+=3;return `重复灵物化为灵砂 +3。`;}
   owned[item.id]=0;return `获得${item.name}！可在灵装法宝中装备。`;
 }
-function combatDamage(s, damage, label, rng, extraDrain=0) {
+function combatDamage(s: GameState, damage: number, label: string, rng: RandomSource, extraDrain=0) {
+  if(s.pending?.kind!=='combat')return null;
   const e=s.pending,actual=Math.min(e.hp,damage), a=attributes(s);
   e.hp=Math.max(0,e.hp-damage);e.turns.push(`${label}，造成 ${damage} 点伤害。`);
   const drain=(s.path==='demon'?.12:0)+extraDrain+(equippedSet(s)?.drain||0);
   if(drain){const heal=Math.min(a.maxHp-s.hp,Math.round(actual*drain));s.hp+=heal;if(heal)e.turns.push(`汲取生机，气血 +${heal}。`);}
   if(e.hp>0)return null;
-  const r=REGIONS.find(x=>x.id===e.region), xp=gainXp(s,35+r.realm*20),dust=1+r.realm;
+  const r=REGIONS.find(x=>x.id===e.region)!, xp=gainXp(s,35+r.realm*20),dust=1+r.realm;
   s.stones+=r.reward;s.items.herb+=2;s.stats.wins++;s.stats.explores++;s.dust+=dust;
   const loot=rng()<.35?dropLoot(s,EQUIPMENT,rng):'';
   log(s,`击败${e.name}！修为 +${xp}，灵石 +${r.reward}，凝露草 ×2，灵砂 +${dust}。${loot}`,'battle');
   s.pending=null;return `历练得胜 · 灵石 +${r.reward}${loot?' · '+loot:''}`;
 }
-function enemyAttack(s, rng, guard = false) {
+function enemyAttack(s: GameState, rng: RandomSource, guard = false) {
+  if(s.pending?.kind!=='combat')return null;
   const e = s.pending;
   let damage = Math.max(1, rand(rng, e.attack - 2, e.attack + 3) - attributes(s).defense - (guard ? 7 + s.realm * 3 : 0));
   if(e.shield){const absorbed=Math.min(e.shield,damage);e.shield-=absorbed;damage-=absorbed;e.turns.push(`护盾吸收 ${absorbed} 点伤害。`);}
@@ -97,7 +101,8 @@ function enemyAttack(s, rng, guard = false) {
   }
   return null;
 }
-export function act(s, action, payload, rng = Math.random) {
+export function act(s: GameState, action: string, payload?: string|null, rng: RandomSource = Math.random): ActionResult {
+  payload ??= '';
   if (s.ended && !['use', 'sell', 'buy', 'study', 'claim', 'buyGear', 'buyArtifact', 'equip', 'equipArtifact', 'unequip', 'upgradeGear', 'upgradeArtifact'].includes(action)) return fail('你已证道长生。可以在设置中开启新一段仙途。');
   if (s.pending && !['choice', 'attack', 'skill', 'guard', 'flee', 'use', 'pathSkill', 'artifactSkill'].includes(action)) return fail('先完成眼前的机缘，再继续仙途。');
   const a = attributes(s);
@@ -144,7 +149,7 @@ export function act(s, action, payload, rng = Math.random) {
       const roll = rng();
       if (roll < 0.4) {
         const set=equippedSet(s),shield=Math.round(a.maxHp*(set?.shield||0));
-        s.pending = { kind: 'combat', region: region.id, name: region.enemy, hp: region.hp, maxHp: region.hp, attack: region.atk, shield,pathUsed:false,artifactCooldown:0, turns: [`穿过山雾，${region.enemy}拦住了去路。`,...(shield?[`${set.name}山海护身，获得 ${shield} 点护盾。`]:[])] };
+        s.pending = { kind: 'combat', region: region.id, name: region.enemy, hp: region.hp, maxHp: region.hp, attack: region.atk, shield,pathUsed:false,artifactCooldown:0, turns: [`穿过山雾，${region.enemy}拦住了去路。`,...(shield?[`${set?.name}山海护身，获得 ${shield} 点护盾。`]:[])] };
         log(s, `游历${region.name}，遭遇${region.enemy}。`, 'explore'); message = '妖兽现身，凝神应战';
       } else if (roll < 0.75) {
         s.pending = { kind: 'event', region: region.id, title: '山中有隐客', desc: '松荫下，一位白发散修正对着残缺的棋局出神。他抬眼看你：“道友，可愿坐下，与我共论此局？”', variant: 'sage' }; message = '机缘已至，请作抉择';
@@ -156,7 +161,7 @@ export function act(s, action, payload, rng = Math.random) {
     case 'choice': {
       if (s.pending?.kind !== 'event') return fail('眼前没有可选机缘。');
       if (!['accept', 'safe'].includes(payload)) return fail('请选择有效选项。');
-      const e = s.pending, region = REGIONS.find(x => x.id === e.region), high = payload === 'accept';
+        const e = s.pending, region = REGIONS.find(x => x.id === e.region)!, high = payload === 'accept';
       if (high && e.variant === 'sage' && s.stones < 12) return fail('共饮灵茶需 12 灵石。也可问路辞行。');
       let outcome = '';
       if (e.variant === 'sage' && high) { s.stones -= 12; const xp = gainXp(s, 48 + s.realm * 12); s.items.focus++; outcome = `与隐客论道，修为 +${xp}，获赠凝神丹 ×1。`; }
@@ -205,7 +210,7 @@ export function act(s, action, payload, rng = Math.random) {
         if(s.energy<item.cost)return fail(`催动${item.name}需要 ${item.cost} 灵力。`);
         s.energy-=item.cost;e.artifactCooldown=4;label=item.skill;
         const scale=1+s.artifacts[item.id]*.2, effect=item.effect;
-        const multiplier={bell:1.8,blast:2.8,pure:2.2,drain:2.5,seal:2}[effect]||0;
+        const multiplier={bell:1.8,blast:2.8,pure:2.2,drain:2.5,seal:2,heal:0}[effect];
         damage=Math.round(a.attack*multiplier*scale);
         if(effect==='bell'||effect==='seal'){e.shield=Math.max(e.shield,Math.min(a.maxHp,Math.round((effect==='bell'?12:a.maxHp*.25)*scale)));e.turns.push(`法宝护持，护盾提升至 ${e.shield}。`);}
         if(effect==='pure'||effect==='heal'){const h=Math.min(a.maxHp-s.hp,Math.round(a.maxHp*(effect==='pure'?.2:.4)*scale));s.hp+=h;e.turns.push(`${item.skill}，气血 +${h}。`);}
@@ -239,7 +244,7 @@ export function act(s, action, payload, rng = Math.random) {
       if(!item||!Object.hasOwn(owned,item.id))return fail('你尚未拥有此灵物。');
       if(s.realm<item.realm)return fail('境界不足，无法驾驭此物。');
       if(item.path&&item.path!==s.path)return fail('修行路径不符，无法炼化此法宝。');
-      const slot=isGear?item.slot:'artifact';if(s.equipped[slot]===item.id)return fail('此物已装备。');
+      const slot=item.slot??'artifact';if(s.equipped[slot]===item.id)return fail('此物已装备。');
       s.equipped[slot]=item.id;clampVitals(s);log(s,`${isGear?'穿戴':'炼化'}${item.name}。`);message=`已装备${item.name}`;break;
     }
     case 'unequip': {
@@ -298,23 +303,24 @@ export function act(s, action, payload, rng = Math.random) {
   }
   return { ok: true, message };
 }
-export function validateSave(value) {
-  if (!value || ![1,2,3].includes(value.version)) throw new Error('存档版本不兼容');
-  const s = structuredClone(value);
+export function validateSave(value: unknown): GameState {
+  if (!value || typeof value!=='object' || !('version' in value) || ![1,2,3,4].includes(value.version as number)) throw new Error('存档版本不兼容');
+  const s = structuredClone(value) as GameState;
   const legacy=s.version<3;
+  const layered=s.version===3;
   if(s.version===1){
     s.version=2;s.path=null;s.gear={...STARTER_GEAR};s.artifacts={...STARTER_ARTIFACTS};s.equipped={weapon:null,armor:null,charm:null,artifact:null};s.dust=0;
     if(s.pending?.kind==='combat'){s.pending.shield=0;s.pending.pathUsed=false;s.pending.artifactCooldown=0;}
   }
   if (typeof s.name !== 'string' || !s.name.trim() || s.name.length > 12) throw new Error('道号无效');
-  for (const [key, min, max] of [['day',1,10000000],['realm',0,legacy?5:FINAL_REALM],['stage',0,legacy?2:12],['stones',0,100000000],['xp',0,100000],['hp',1,10000],['energy',0,10000],['pity',0,100]]) {
+  for (const [key, min, max] of [['day',1,10000000],['realm',0,legacy?5:FINAL_REALM],['stage',0,legacy?2:layered?12:3],['stones',0,100000000],['xp',0,100000],['hp',1,10000],['energy',0,10000],['pity',0,100]] as const) {
     if (!Number.isInteger(s[key]) || s[key] < min || s[key] > max) throw new Error('存档数值无效');
   }
   for (const b of BOOKS) if (!Number.isInteger(s.books?.[b.id]) || s.books[b.id] < 0 || s.books[b.id] > b.max) throw new Error('功法数据无效');
   for (const i of ITEMS) if (!Number.isInteger(s.items?.[i.id]) || s.items[i.id] < 0 || s.items[i.id] > 1000000) throw new Error('行囊数据无效');
   if(s.path!==null&&!PATHS.some(p=>p.id===s.path))throw new Error('修行路径无效');
   if(!Number.isInteger(s.dust)||s.dust<0||s.dust>10000000)throw new Error('灵砂数据无效');
-  for(const [key,catalog] of [['gear',EQUIPMENT],['artifacts',ARTIFACTS]]){
+  for(const [key,catalog] of [['gear',EQUIPMENT],['artifacts',ARTIFACTS]] as const){
     const owned=s[key];
     if(!owned||typeof owned!=='object'||Array.isArray(owned)||Object.entries(owned).some(([id,level])=>!catalog.some(i=>i.id===id)||!Number.isInteger(level)||level<0||level>3))throw new Error('灵库数据无效');
   }
@@ -325,10 +331,11 @@ export function validateSave(value) {
     if(!item||(!isArtifact&&item.slot!==slot)||!Object.hasOwn(isArtifact?s.artifacts:s.gear,id)||s.realm<item.realm||(item.path&&item.path!==s.path))throw new Error('装备栏与灵库不匹配');
   }
   for (const key of ['cultivates','explores','breaks','wins','studies']) if (!Number.isInteger(s.stats?.[key]) || s.stats[key] < 0) throw new Error('仙途记录无效');
-  if (typeof s.focus !== 'boolean' || typeof s.ended !== 'boolean' || (legacy ? s.ended && (s.realm!==5||s.stage!==2) : s.stage>=stageCount(s.realm)||s.ended!==(s.realm===FINAL_REALM))) throw new Error('境界数据无效');
+  const limit=layered&&s.realm===0?13:stageCount(s.realm);
+  if (typeof s.focus !== 'boolean' || typeof s.ended !== 'boolean' || (legacy ? s.ended && (s.realm!==5||s.stage!==2) : s.stage>=limit||s.ended!==(s.realm===FINAL_REALM))) throw new Error('境界数据无效');
   if (!Array.isArray(s.claimed) || s.claimed.some(x => !QUESTS.some(q => q.id === x)) || new Set(s.claimed).size !== s.claimed.length) throw new Error('机缘记录无效');
   if (!Array.isArray(s.logs) || s.logs.length > 100 || s.logs.some(x => typeof x.text !== 'string' || x.text.length > 1000 || !Number.isInteger(x.day) || x.day < 1 || typeof x.type !== 'string')) throw new Error('日志数据无效');
-  const a = legacy?calculateAttributes(s,s.realm*3+s.stage):attributes(s);
+  const a = legacy?calculateAttributes(s,s.realm*3+s.stage):layered&&s.realm===0?calculateAttributes(s,s.stage/6):attributes(s);
   if (s.hp > a.maxHp || s.energy > a.maxEnergy || s.xp > a.xpNeed) throw new Error('角色属性超出上限');
   if (s.pending) {
     const e = s.pending, r = REGIONS.find(x => x.id === e.region);
@@ -340,11 +347,17 @@ export function validateSave(value) {
       if (!['sage','cave'].includes(e.variant) || typeof e.title !== 'string' || e.title.length > 60 || typeof e.desc !== 'string' || e.desc.length > 500) throw new Error('奇遇数据无效');
     } else throw new Error('历练状态无效');
   }
-  if(legacy){
+  if(legacy||layered){
     const fraction=s.xp/a.xpNeed;
     if(s.ended){s.realm=FINAL_REALM;s.stage=0;s.xp=0;}
-    else {if(s.realm===0)s.stage=[0,6,12][s.stage];else if(s.realm===5)s.realm=7;s.xp=Math.round(fraction*attributes(s).xpNeed);}
-    s.version=3;
+    else {
+      if(layered&&s.realm===0)s.stage=s.stage<4?0:s.stage<7?1:s.stage<10?2:3;
+      else if(legacy&&s.realm===5)s.realm=7;
+      s.xp=Math.round(fraction*attributes(s).xpNeed);
+    }
+    s.version=4;
+    clampVitals(s);
+    if(s.pending?.kind==='combat')s.pending.shield=Math.min(s.pending.shield,attributes(s).maxHp);
   }
   return s;
 }

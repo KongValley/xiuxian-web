@@ -1,10 +1,11 @@
-export const PATHS = [
+import type { ActiveSet, ArtifactItem, Bonus, CultivationPath, EquipmentItem, EquipmentSet, GameState, PathId, SetEffect, SpiritItem, Stat } from './types.js';
+export const PATHS: CultivationPath[] = [
   { id:'immortal', name:'仙修', mark:'仙', motto:'澄心明道，御气归真', desc:'顺应天道，灵力悠长，擅长修炼与回元。', passive:'修炼收益 +15% · 灵力上限 +20 · 突破成功率 +5%', skill:'太清回元', skillDesc:'恢复 30% 气血上限与 18 灵力；每场一次，消耗一回合。', ending:'羽化登仙', color:'jade' },
   { id:'demon', name:'魔修', mark:'魔', motto:'以血问道，一念焚天', desc:'逆命而行，以较弱防御换取爆发与汲血。', passive:'攻击 +20% · 防御 −2 · 造成伤害时汲血 12%', skill:'血焰斩', skillDesc:'消耗 12% 气血上限与 10 灵力，造成 3 倍攻击伤害；每场一次。', ending:'证道魔尊', color:'crimson' },
   { id:'yao', name:'妖修', mark:'妖', motto:'山海为骨，万灵归身', desc:'唤醒山海血脉，以强健体魄持久迎战。', passive:'气血上限 +25% · 防御 +3', skill:'妖魂咆哮', skillDesc:'消耗 14 灵力，造成 2 倍攻击伤害，获得 20% 气血上限护盾；每场一次。', ending:'万妖之圣', color:'amber' }
 ];
 export const SLOTS = { weapon:'武器', armor:'法衣', charm:'佩饰' };
-export const EQUIPMENT = [
+export const EQUIPMENT: EquipmentItem[] = [
   {id:'bambooSword',name:'青竹剑',slot:'weapon',mark:'剑',tier:0,realm:0,price:35,attack:4,desc:'以百年青竹削成，轻灵不凡。'},
   {id:'linenRobe',name:'素云袍',slot:'armor',mark:'袍',tier:0,realm:0,price:40,hp:15,defense:2,desc:'云纹护身，拂去山中风寒。'},
   {id:'dewPendant',name:'凝露佩',slot:'charm',mark:'佩',tier:0,realm:0,price:45,energy:10,desc:'一滴晨露封入玉中，温养灵台。'},
@@ -34,7 +35,7 @@ export const EQUIPMENT = [
   {id:'immortalPendant',name:'天元仙佩',slot:'charm',mark:'元',tier:8,realm:8,price:11000,energy:150,attack:60,desc:'仙元为引，留作新途之证。'}
 ];
 export const GRADES = ['凡品','灵品','宝品','玄品','道品','虚品','合真','大乘','仙品'];
-export const EQUIPMENT_SETS = [
+export const EQUIPMENT_SETS: EquipmentSet[] = [
   {realm:0,name:'青云',immortal:'清风',demon:'血荆',yao:'山灵'},
   {realm:1,name:'流霞',immortal:'流霞',demon:'赤煞',yao:'玄鳞'},
   {realm:2,name:'太虚',immortal:'太虚',demon:'噬魂',yao:'苍龙'},
@@ -45,31 +46,31 @@ export const EQUIPMENT_SETS = [
   {realm:7,name:'凌天',immortal:'凌天',demon:'天魔',yao:'圣灵'},
   {realm:8,name:'太初',immortal:'太初',demon:'无相',yao:'真灵'}
 ];
-export function affinityBonus(item,level=0,path=null){
+export function affinityBonus(item: SpiritItem,level=0,path: PathId|null=null): Bonus {
   if(!item.slot||!PATHS.some(p=>p.id===path))return {attack:0,defense:0,hp:0,energy:0};
   const r=item.realm+1,scale=1+level*.3;
-  const effects={
+  const effects: Record<PathId, Record<string, Partial<Bonus>>>={
     immortal:{weapon:{attack:r,energy:2*r},armor:{defense:r,energy:3*r},charm:{energy:5*r,hp:4*r}},
     demon:{weapon:{attack:2*r},armor:{attack:r,hp:5*r},charm:{attack:r,energy:2*r}},
     yao:{weapon:{attack:r,hp:8*r},armor:{hp:12*r,defense:r},charm:{hp:10*r,defense:r}}
   };
-  const bonus=effects[path][item.slot];
-  return Object.fromEntries(['attack','defense','hp','energy'].map(k=>[k,Math.round((bonus[k]||0)*scale)]));
+  const bonus=effects[path!][item.slot];
+  return Object.fromEntries((['attack','defense','hp','energy'] as Stat[]).map(k=>[k,Math.round((bonus[k]||0)*scale)])) as Bonus;
 }
-export function setEffects(realm,path){
+export function setEffects(realm: number,path: PathId|null): SetEffect {
   const r=realm+1,definition=EQUIPMENT_SETS[realm];
-  const effects={immortal:{bonus:{energy:8*r},heal:2*r,energyRegen:r},demon:{bonus:{attack:3*r},drain:.04+.01*realm},yao:{bonus:{hp:15*r},shield:.08+.02*realm}};
-  return {realm,name:(definition?.[path]||definition?.name||'无名')+'套装',bonus:{},heal:0,energyRegen:0,drain:0,shield:0,...(effects[path]||{})};
+  const effects: Record<PathId, Partial<SetEffect>>={immortal:{bonus:{energy:8*r},heal:2*r,energyRegen:r},demon:{bonus:{attack:3*r},drain:.04+.01*realm},yao:{bonus:{hp:15*r},shield:.08+.02*realm}};
+  return {realm,name:((path?definition?.[path]:null)||definition?.name||'无名')+'套装',bonus:{},heal:0,energyRegen:0,drain:0,shield:0,...(path?effects[path]:{})};
 }
-export function equippedSet(s){
-  const counts=new Map();
+export function equippedSet(s: GameState): ActiveSet|null {
+  const counts=new Map<number,number>();
   for(const slot of Object.keys(SLOTS)){const item=EQUIPMENT.find(i=>i.id===s.equipped?.[slot]);if(item)counts.set(item.realm,(counts.get(item.realm)||0)+1);}
   const match=[...counts].find(([,count])=>count>=2);
   if(!match||!PATHS.some(p=>p.id===s.path))return null;
   const [realm,pieces]=match,effect=setEffects(realm,s.path);
   return {...effect,pieces,...(pieces<3?{heal:0,energyRegen:0,drain:0,shield:0}:{})};
 }
-export const ARTIFACTS = [
+export const ARTIFACTS: ArtifactItem[] = [
   {id:'spiritBell',name:'青纹铃',mark:'铃',tier:0,realm:0,price:70,defense:2,cost:14,skill:'青铃镇魂',effect:'bell',desc:'造成 1.8 倍攻击伤害，并获得 12 点护盾。'},
   {id:'scarletMirror',name:'赤霄镜',mark:'镜',tier:1,realm:1,price:220,attack:5,cost:20,skill:'赤霄焚影',effect:'blast',desc:'镜中赤光焚影，造成 2.8 倍攻击伤害。'},
   {id:'originCauldron',name:'归元鼎',mark:'鼎',tier:1,realm:1,price:230,hp:25,cost:16,skill:'万气归元',effect:'heal',desc:'恢复 40% 气血上限与 12 灵力，适合持久战。'},
@@ -77,10 +78,10 @@ export const ARTIFACTS = [
   {id:'soulBanner',name:'噬魂幡',mark:'幡',tier:1,realm:1,path:'demon',price:260,attack:8,cost:18,skill:'噬魂血祭',effect:'drain',desc:'魔修专属：造成 2.5 倍攻击伤害，额外汲血 30%。'},
   {id:'seaSeal',name:'山海印',mark:'印',tier:1,realm:1,path:'yao',price:260,hp:30,defense:2,cost:18,skill:'山海镇岳',effect:'seal',desc:'妖修专属：造成 2 倍攻击伤害，获得 25% 气血上限护盾。'}
 ];
-export const STARTER_GEAR = { bambooSword:0, linenRobe:0 };
-export const STARTER_ARTIFACTS = { spiritBell:0 };
-export const gearBonus = (item, level = 0,path=null) => {
+export const STARTER_GEAR: Record<string,number> = { bambooSword:0, linenRobe:0 };
+export const STARTER_ARTIFACTS: Record<string,number> = { spiritBell:0 };
+export const gearBonus = (item: SpiritItem, level = 0,path: PathId|null=null): Bonus => {
   const affinity=affinityBonus(item,level,path);
-  return Object.fromEntries(['attack','defense','hp','energy'].map(k=>[k,Math.round((item[k] || 0) * (1 + level * .3))+affinity[k]]));
+  return Object.fromEntries((['attack','defense','hp','energy'] as Stat[]).map(k=>[k,Math.round((item[k] || 0) * (1 + level * .3))+affinity[k]])) as Bonus;
 };
-export function upgradeCost(item, level) { return { stones:20*(item.tier+1)*(level+1),dust:(2+level*2)*(item.tier+1) }; }
+export function upgradeCost(item: SpiritItem, level: number) { return { stones:20*(item.tier+1)*(level+1),dust:(2+level*2)*(item.tier+1) }; }
