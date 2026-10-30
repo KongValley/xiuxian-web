@@ -4,6 +4,7 @@ import type { ActionResult, Bonus, EquipmentItem, ArtifactItem, GameState, Rando
 import { BOOKS, FOUNDATION_BOOKS, MAX_ACTIVE_BOOKS, findManual, manualEffects } from './manuals.js';
 import { artifactPower, LEGACY_ARTIFACT_IDS } from './artifacts.js';
 import { ROOT_ACTIONS, actRoot, createRoots, gainRootEssence, rootEffects, validateRoots } from './roots.js';
+import { AFFIX_ACTIONS, actAffix, affixBonus, affixSpecials, createReforge, gainReforgeShards, validateReforge } from './affixes.js';
 export { REALMS, STAGES } from './realms.js';
 export { BOOKS } from './manuals.js';
 export const ITEMS = [
@@ -27,8 +28,8 @@ export const QUESTS = [
   { id: 'ascend', title: '长生可期', desc: '成功突破九次境界', key: 'breaks', goal: 9, reward: 300 }
 ];
 export function createGame(name = '云归客'): GameState {
-  return { version: 7, name: name.slice(0, 12), day: 1, realm: 0, stage: 0, xp: 0, hp: 100, energy: 100, stones: 88,
-    path:null, roots:createRoots(), gear:{...STARTER_GEAR}, artifacts:{...STARTER_ARTIFACTS}, equipped:{weapon:null,armor:null,charm:null,artifact:null}, dust:0,
+  return { version: 8, name: name.slice(0, 12), day: 1, realm: 0, stage: 0, xp: 0, hp: 100, energy: 100, stones: 88,
+    path:null, roots:createRoots(), reforge:createReforge(), gear:{...STARTER_GEAR}, artifacts:{...STARTER_ARTIFACTS}, equipped:{weapon:null,armor:null,charm:null,artifact:null}, dust:0,
     books: { breath: 1, sword: 0, body: 0 }, activeBooks:['breath'], items: { qi: 2, heal: 2, focus: 0, herb: 3 }, focus: false, pity: 0,
     stats: { cultivates: 0, explores: 0, breaks: 0, wins: 0, studies: 0 }, claimed: [], pending: null, ended: false,
     logs: [{ day: 1, type: 'story', text: '你自山下而来，携一卷《太虚吐纳诀》，于青云山结庐。从此，红尘渐远，仙途初启。' }] };
@@ -39,16 +40,16 @@ function calculateAttributes(s: GameState,rank: number) {
   for(const id of Object.values(s.equipped || {})) {
     if(!id)continue;
     const item=[...EQUIPMENT,...ARTIFACTS].find(x=>x.id===id);
-    if(item){const b=gearBonus(item,(s.gear?.[id] ?? s.artifacts?.[id]) || 0,s.path,s.version>=6?s:undefined);for(const k of Object.keys(bonus) as Stat[])bonus[k]+=b[k];}
+    if(item){const b=gearBonus(item,(s.gear?.[id] ?? s.artifacts?.[id]) || 0,s.path,s.version>=6?s:undefined),f=affixBonus(s,item);for(const k of Object.keys(bonus) as Stat[])bonus[k]+=b[k]+f[k];}
   }
   const set=equippedSet(s);if(set)for(const [k,v]of Object.entries(set.bonus))bonus[k as Stat]+=v;
   const m=manualEffects(s);for(const k of Object.keys(bonus) as Stat[])bonus[k]+=m[k];
   const roots=rootEffects(s);for(const k of Object.keys(bonus) as Stat[])bonus[k]+=roots[k];
-  return { maxHp: Math.round((100 + rank * 24 + bonus.hp)*(s.path==='yao'?1.25:1)), maxEnergy: 100 + s.realm * 10 + bonus.energy + (s.path==='immortal'?20:0), attack: Math.round((14 + rank * 6 + bonus.attack)*(s.path==='demon'?1.2:1)), defense: Math.max(0,Math.round(3 + rank * 2 + bonus.defense + (s.path==='yao'?3:s.path==='demon'?-2:0))), xpNeed: Math.round(100 * (1 + rank * 0.6)), chance: Math.min(100, 80 - s.realm * 5 + (s.focus ? 20 : 0) + s.pity * 10 + (s.path==='immortal'?5:0)+m.chance+roots.chance) };
+  return { maxHp: Math.round((100 + rank * 24 + bonus.hp)*(s.path==='yao'?1.25:1)), maxEnergy: 100 + s.realm * 10 + bonus.energy + (s.path==='immortal'?20:0), attack: Math.round((14 + rank * 6 + bonus.attack)*(s.path==='demon'?1.2:1)), defense: Math.max(0,Math.round(3 + rank * 2 + bonus.defense + (s.path==='yao'?3:s.path==='demon'?-2:0))), xpNeed: Math.round(100 * (1 + rank * 0.6)), chance: Math.min(100, 80 - s.realm * 5 + (s.focus ? 20 : 0) + s.pity * 10 + (s.path==='immortal'?5:0)+m.chance+roots.chance+affixSpecials(s).chance) };
 }
 export function endingLabel(s: GameState) { return PATHS.find(p=>p.id===s.path)?.ending || '羽化登仙'; }
 export function realmLabel(s: GameState) { return REALMS[s.realm] + ' · ' + (s.ended ? endingLabel(s) : stageLabel(s)); }
-export function cultivationRate(s: GameState) { return (1+manualEffects(s).cultivation)*(1+rootEffects(s).cultivation)*(s.path==='immortal'?1.15:1); }
+export function cultivationRate(s: GameState) { return (1+manualEffects(s).cultivation)*(1+rootEffects(s).cultivation)*(1+affixSpecials(s).cultivation)*(s.path==='immortal'?1.15:1); }
 function clampVitals(s: GameState) { const a=attributes(s);s.hp=Math.min(s.hp,a.maxHp);s.energy=Math.min(s.energy,a.maxEnergy); }
 export function calendar(day: number) {
   return `道历${Math.floor((day - 1) / 360) + 1}年 · ${['春', '夏', '秋', '冬'][Math.floor(((day - 1) % 360) / 90)]} · 第${(day - 1) % 360 + 1}日`;
@@ -76,7 +77,8 @@ function combatDamage(s: GameState, damage: number, label: string, rng: RandomSo
   s.stones+=r.reward;s.items.herb+=2;s.stats.wins++;s.stats.explores++;s.dust+=dust;
   const loot=rng()<.35?dropLoot(s,EQUIPMENT,rng):'';
   const essence=gainRootEssence(s,1+r.realm);
-  log(s,`击败${e.name}！修为 +${xp}，灵石 +${r.reward}，凝露草 ×2，灵砂 +${dust}，灵魄 +${essence}。${loot}`,'battle');
+  const shards=gainReforgeShards(s,2+r.realm);
+  log(s,`击败${e.name}！修为 +${xp}，灵石 +${r.reward}，凝露草 ×2，灵砂 +${dust}，灵魄 +${essence}，洗练石 +${shards}。${loot}`,'battle');
   s.pending=null;return `历练得胜 · 灵石 +${r.reward}${loot?' · '+loot:''}`;
 }
 function enemyAttack(s: GameState, rng: RandomSource, guard = false) {
@@ -109,9 +111,10 @@ function enemyAttack(s: GameState, rng: RandomSource, guard = false) {
 }
 export function act(s: GameState, action: string, payload?: string|null, rng: RandomSource = Math.random): ActionResult {
   payload ??= '';
-  if (s.ended && ![...ROOT_ACTIONS, 'use', 'sell', 'buy', 'study', 'activateBook', 'deactivateBook', 'switchBook', 'choosePath', 'rest', 'gather', 'claim', 'buyGear', 'buyArtifact', 'equip', 'equipArtifact', 'unequip', 'upgradeGear', 'upgradeArtifact'].includes(action)) return fail('你已证道长生。可以在设置中开启新一段仙途。');
+  if (s.ended && ![...ROOT_ACTIONS,...AFFIX_ACTIONS, 'use', 'sell', 'buy', 'study', 'activateBook', 'deactivateBook', 'switchBook', 'choosePath', 'rest', 'gather', 'claim', 'buyGear', 'buyArtifact', 'equip', 'equipArtifact', 'unequip', 'upgradeGear', 'upgradeArtifact'].includes(action)) return fail('你已证道长生。可以在设置中开启新一段仙途。');
   if (s.pending && !['choice', 'attack', 'skill', 'guard', 'flee', 'use', 'pathSkill', 'artifactSkill'].includes(action)) return fail('先完成眼前的机缘，再继续仙途。');
   if(ROOT_ACTIONS.includes(action)){const result=actRoot(s,action,payload);if(result.ok){clampVitals(s);log(s,result.message,'cultivate');}return result;}
+  if(AFFIX_ACTIONS.includes(action)){const result=actAffix(s,action,payload,rng);if(result.ok){clampVitals(s);log(s,result.message,'cultivate');}return result;}
   const a = attributes(s);
   let message = '';
   switch (action) {
@@ -131,7 +134,7 @@ export function act(s: GameState, action: string, payload?: string|null, rng: Ra
     case 'gather': {
       if (!spend(s, 8)) return fail('灵力不足，先静养一日。');
       const herbs = rand(rng, 1, 3), stones = rand(rng, 5, 12) + s.realm * 3;
-      s.items.herb += herbs; s.stones += stones;const essence=gainRootEssence(s,1); log(s, `踏露采药，寻得凝露草 ×${herbs}，山溪灵石 +${stones}，灵魄 +${essence}。`, 'explore'); message = `凝露草 +${herbs} · 灵石 +${stones} · 灵魄 +${essence}`; break;
+      s.items.herb += herbs; s.stones += stones;const essence=gainRootEssence(s,1),shards=gainReforgeShards(s,1); log(s, `踏露采药，寻得凝露草 ×${herbs}，山溪灵石 +${stones}，灵魄 +${essence}，洗练石 +${shards}。`, 'explore'); message = `凝露草 +${herbs} · 灵石 +${stones} · 灵魄 +${essence} · 洗练石 +${shards}`; break;
     }
     case 'breakthrough': {
       if (s.xp < a.xpNeed) return fail('修为尚未圆满，继续修炼吧。');
@@ -176,7 +179,7 @@ export function act(s: GameState, action: string, payload?: string|null, rng: Ra
         if (rng() < 0.7) { s.stones += region.reward * 2; s.items.qi++; outcome = `破开禁制，寻得旧日遗藏。灵石 +${region.reward * 2}，聚气丹 ×1。`; if(rng()<.2)outcome+=dropLoot(s,ARTIFACTS,rng); }
         else { const hurt = Math.min(s.hp - 1, 20 + s.realm * 5); s.hp -= hurt; s.items.herb += 2; outcome = `禁制反噬，气血 -${hurt}。撤离时采得凝露草 ×2。`; }
       } else { const xp = gainXp(s, 15 + s.realm * 5); s.stones += region.reward; s.items.herb++; outcome = `从容踏过山径，修为 +${xp}，灵石 +${region.reward}，凝露草 ×1。`; }
-      const essence=gainRootEssence(s,1+region.realm);outcome+=`灵魄 +${essence}。`;
+      const essence=gainRootEssence(s,1+region.realm),shards=gainReforgeShards(s,1+region.realm);outcome+=`灵魄 +${essence}，洗练石 +${shards}。`;
       s.stats.explores++; log(s, `${region.name}奇遇：${outcome}`, 'explore'); s.pending = null; message = outcome; break;
     }
     case 'attack': case 'skill': case 'guard': case 'flee': {
@@ -334,7 +337,7 @@ export function act(s: GameState, action: string, payload?: string|null, rng: Ra
   return { ok: true, message };
 }
 export function validateSave(value: unknown): GameState {
-  if (!value || typeof value!=='object' || !('version' in value) || ![1,2,3,4,5,6,7].includes(value.version as number)) throw new Error('存档版本不兼容');
+  if (!value || typeof value!=='object' || !('version' in value) || ![1,2,3,4,5,6,7,8].includes(value.version as number)) throw new Error('存档版本不兼容');
   const s = structuredClone(value) as GameState;
   const legacy=s.version<3;
   const layered=s.version===3;
@@ -344,7 +347,7 @@ export function validateSave(value: unknown): GameState {
     if(s.pending?.kind==='combat'){s.pending.shield=0;s.pending.pathUsed=false;s.pending.artifactCooldown=0;}
   }
   if (typeof s.name !== 'string' || !s.name.trim() || s.name.length > 12) throw new Error('道号无效');
-  for (const [key, min, max] of [['day',1,10000000],['realm',0,legacy?5:FINAL_REALM],['stage',0,legacy?2:layered?12:3],['stones',0,100000000],['xp',0,100000],['hp',1,10000],['energy',0,10000],['pity',0,100]] as const) {
+  for (const [key, min, max] of [['day',1,10000000],['realm',0,legacy?5:FINAL_REALM],['stage',0,legacy?2:layered?12:3],['stones',0,100000000],['xp',0,100000],['hp',1,s.version>=8?100000:10000],['energy',0,s.version>=8?100000:10000],['pity',0,100]] as const) {
     if (!Number.isInteger(s[key]) || s[key] < min || s[key] > max) throw new Error('存档数值无效');
   }
   const oldBooks=s.version<5;
@@ -361,6 +364,7 @@ export function validateSave(value: unknown): GameState {
     if(!owned||typeof owned!=='object'||Array.isArray(owned)||Object.entries(owned).some(([id,level])=>!catalog.some(i=>i.id===id)||!Number.isInteger(level)||level<0||level>3))throw new Error('灵库数据无效');
     if(key==='artifacts'&&s.version<6&&Object.keys(owned).some(id=>!LEGACY_ARTIFACT_IDS.includes(id)))throw new Error('旧版法宝数据无效');
   }
+  if(s.version<8)s.reforge=createReforge();else s.reforge=validateReforge(s.reforge,s);
   if(!s.equipped||typeof s.equipped!=='object'||Array.isArray(s.equipped)||Object.keys(s.equipped).length!==4)throw new Error('装备栏数据无效');
   for(const slot of [...Object.keys(SLOTS),'artifact']){
     const id=s.equipped[slot];if(id===null)continue;
@@ -396,7 +400,7 @@ export function validateSave(value: unknown): GameState {
     clampVitals(s);
     if(s.pending?.kind==='combat')s.pending.shield=Math.min(s.pending.shield,attributes(s).maxHp);
   }
-  s.version=7;
+  s.version=8;
   clampVitals(s);
   return s;
 }

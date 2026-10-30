@@ -10,6 +10,8 @@ import { artifactPowerText, artifactStageLabel } from './artifacts.js';
 import { findManual, manualEffects, manualEffectText, MAX_ACTIVE_BOOKS } from './manuals.js';
 import { renderRoots, rootEffectsText } from './roots-view.js';
 import { canPayRootCost, findElement, ROOT_GRADES, ROOT_LEVEL_CAPS, ROOT_PROMOTIONS, rootCostText, rootLabel, rootPromotionReason, rootReshapeCost } from './roots.js';
+import { affixBonus, findSpiritItem, ownsSpiritItem } from './affixes.js';
+import { affixLinesMarkup, affixMaterialsMarkup, affixPreview, affixWorkshop } from './affixes-view.js';
 
 const paths: Record<string,string> = {
   home: '<path d="m3 11 9-8 9 8M5 10v10h14V10M9 20v-7h6v7"/>',
@@ -44,6 +46,7 @@ const SAVE_KEY = 'wendao-changsheng-v1';
 let state = createGame(), tab = 'home', filter = 'all', shopSection = 'items', gearRealm = 'current', storageAvailable = true;
 let toastTimer: ReturnType<typeof setTimeout> | undefined;
 let breakthroughPlaying=false;
+let affixContext:string|null=null;
 let artifactFilters:ArtifactFilters={realm:'current',effect:'all',status:'all',query:'',page:0};
 let bookPath='current',bookRealm='current',bookStatus='all',bookType='all',bookSearch='',bookPage=0;
 let loadWarning = '';
@@ -129,7 +132,10 @@ function renderHome() {
   ${sectionHeading('scroll','仙途机缘','每一步修行，都有回响')}${questMarkup()}`;
 }
 function intro(title: string,desc: string,eyebrow: string) { return `<div class="view-intro"><div class="dialog-eyebrow">${eyebrow}</div><h2>${title}</h2><p>${desc}</p></div>`; }
-function pendingBanner() { return state.pending ? `<div class="warning-note" style="margin:0 0 18px;display:flex;align-items:center;justify-content:space-between;gap:15px">${state.pending.kind === 'combat' ? '山中战局未定，妖兽仍在眼前。' : '山中机缘未了，静候道友抉择。'}<button class="text-link" data-ui="resume">继续历练 ↗</button></div>` : ''; }
+function pendingBanner() {
+  const encounter=state.pending?'<div class="warning-note forge-banner">'+(state.pending.kind==='combat'?'山中战局未定，妖兽仍在眼前。':'山中机缘未了，静候道友抉择。')+'<button class="text-link" data-ui="resume">继续历练 ↗</button></div>':'';
+  return encounter+(state.reforge.pending?'<div class="warning-note forge-banner">词条洗练结果待定，原词条仍保留。<button class="text-link" data-ui="affix-preview">比较词条 ↗</button></div>':'');
+}
 function renderExplore() {
   return `${pendingBanner()}${intro('山河有灵，万物有缘','走出洞府，踏入山河。或遇故人论道，或逢妖兽拦路，每次出行，皆是一场修行。','EXPLORE THE WORLD')}
   ${sectionHeading('mountain','四方山河','奇遇与战斗 · 随机触发')}
@@ -170,7 +176,7 @@ function renderShop() {
   return heading+tabs+filter+'<div class="item-grid">'+products+'</div><p class="soundless-note">购入装备后，请在「灵装法宝」中穿戴。同境两件、三件可激活路径套装效果。</p>';
 }
 function bonusText(item: SpiritItem,level: number) {
-  return formatBonus(gearBonus(item,level,state.path,state));
+  const bonus=gearBonus(item,level,state.path,state),extra=affixBonus(state,item);for(const key of Object.keys(bonus) as Array<keyof Bonus>)bonus[key]+=extra[key];return formatBonus(bonus);
 }
 function formatBonus(b: Partial<Bonus>){
   const names: Record<string,string>={attack:'攻击',defense:'防御',hp:'气血上限',energy:'灵力上限'};
@@ -189,12 +195,12 @@ function renderSetOverview(){
 }
 function ownedCard(item: EquipmentItem){
   const level=state.gear[item.id],equipped=state.equipped[item.slot]===item.id,cost=upgradeCost(item,level),locked=state.realm<item.realm;
-  return '<article class="panel owned-card"><div class="owned-top"><span class="gear-glyph '+(state.path||'')+'">'+item.mark+'</span><div><span class="gear-label">'+REALMS[item.realm]+' · '+GRADES[item.tier]+' · '+SLOTS[item.slot]+'</span><h3>'+item.name+' <small>+'+level+'</small></h3></div>'+(equipped?'<span class="tag equipped-tag">已装备</span>':'')+'</div><div class="bonus-line">'+bonusText(item,level)+'</div>'+attunementMarkup(item,level)+'<p class="gear-description">'+item.desc+'</p><div class="owned-actions">'+(equipped?actionButton('unequip','卸下',item.slot,'outline'):actionButton('equip','穿戴',item.id,'primary',locked))+actionButton('upgradeGear',level>=3?'淬炼圆满':'淬炼进阶',item.id,'outline',level>=3||state.stones<cost.stones||state.dust<cost.dust)+'</div><small class="upgrade-note">'+(level>=3?'已达 +3 · 属性与道纹提升 90%':'淬炼：'+cost.stones+' 灵石 + '+cost.dust+' 灵砂 + 8 灵力 · 1 日')+'</small></article>';
+  return '<article class="panel owned-card"><div class="owned-top"><span class="gear-glyph '+(state.path||'')+'">'+item.mark+'</span><div><span class="gear-label">'+REALMS[item.realm]+' · '+GRADES[item.tier]+' · '+SLOTS[item.slot]+'</span><h3>'+item.name+' <small>+'+level+'</small></h3></div>'+(equipped?'<span class="tag equipped-tag">已装备</span>':'')+'</div><div class="bonus-line">'+bonusText(item,level)+'</div>'+attunementMarkup(item,level)+'<p class="gear-description">'+item.desc+'</p>'+affixLinesMarkup(state,item)+'<div class="owned-actions">'+(equipped?actionButton('unequip','卸下',item.slot,'outline'):actionButton('equip','穿戴',item.id,'primary',locked))+actionButton('upgradeGear',level>=3?'淬炼圆满':'淬炼进阶',item.id,'outline',level>=3||state.stones<cost.stones||state.dust<cost.dust)+'<button class="text-link forge-link" data-ui="affix-workshop" data-value="'+item.id+'">词条洗练 ↗</button></div><small class="upgrade-note">'+(level>=3?'已达 +3 · 属性与道纹提升 90%':'淬炼：'+cost.stones+' 灵石 + '+cost.dust+' 灵砂 + 8 灵力 · 1 日')+'</small></article>';
 }
 function renderGear() {
   const a=attributes(state);
   const activeSet=equippedSet(state);
-  return `${pendingBanner()}${intro('灵装护身，万宝随心','各境均有一套灵装，仙魔妖各有道纹。集齐同境三件，唤醒属于你这条道的套装之力。','EQUIPMENT & ARTIFACTS')}${activeSet?`<div class="active-set-note">${activeSet.name} · ${activeSet.pieces}/3 <span>两件效果已激活${activeSet.pieces===3?' · 三件效果已激活':''}</span></div>`:''}<div class="loadout-slots">${[...Object.entries(SLOTS),['artifact','法宝']].map(([slot,name])=>{
+  return `${pendingBanner()}${intro('灵装护身，万宝随心','各境均有一套灵装，仙魔妖各有道纹。集齐同境三件，唤醒属于你这条道的套装之力。','EQUIPMENT & ARTIFACTS')}${affixMaterialsMarkup(state)}${activeSet?`<div class="active-set-note">${activeSet.name} · ${activeSet.pieces}/3 <span>两件效果已激活${activeSet.pieces===3?' · 三件效果已激活':''}</span></div>`:''}<div class="loadout-slots">${[...Object.entries(SLOTS),['artifact','法宝']].map(([slot,name])=>{
     const item=[...EQUIPMENT,...ARTIFACTS].find(i=>i.id===state.equipped[slot]);
     return `<div class="panel loadout-slot"><span>${icon(slot==='artifact'?'lotus':slot==='weapon'?'sword':slot==='armor'?'bag':'leaf')}${name}</span><strong>${item?item.name:'未装备'}</strong><small>${item?'+'+(state.gear[item.id]??state.artifacts[item.id])+('effect' in item?' · '+artifactStageLabel(item,state):''):'从下方灵库挑选'}</small>${item&&'effect' in item?'<button class="text-link" data-ui="artifact-details" data-value="'+item.id+'">查看阶段数值 ↗</button>':''}</div>`;
   }).join('')}</div><div class="gear-totals"><span>攻击 <b>${a.attack}</b></span><span>防御 <b>${a.defense}</b></span><span>气血上限 <b>${a.maxHp}</b></span><span>灵砂 <b>${state.dust}</b></span></div>${renderSetOverview()}${sectionHeading('sword','随身灵装','属性已含当前路径道纹')}<div class="owned-grid">${EQUIPMENT.filter(i=>Object.hasOwn(state.gear,i.id)).map(i=>ownedCard(i)).join('')||'<p class="empty-note">暂未拥有灵装，可前往坊市购买。</p>'}</div>${renderArtifactLibrary(state,artifactFilters)}<p class="soundless-note">已赠青竹剑、素云袍、青纹铃，请手动装备。战胜妖兽必得灵砂，35% 概率掉落装备；成功探查遗藏后有 20% 概率获得法宝，重复灵物转为 3 灵砂。穿卸装备不会恢复气血或灵力，历练途中不可换装。</p><button class="btn outline" data-tab="shop">前往坊市寻宝 ${icon('arrow')}</button>`;
@@ -203,7 +209,7 @@ function renderPaths() {
   return `${pendingBanner()}${intro('仙魔妖途，道由心生','同一片山河，三种问道之身。每条路都有天赋、本命神通与长生结局；九境法宝均为三途通用。','THREE PATHS · ONE ETERNAL JOURNEY')}<div class="path-policy"><span class="status-dot"></span>${state.path?'当前路径：'+PATHS.find(p=>p.id===state.path)!.name+' · 改修需 100 灵石与 1 日':'尚未定道 · 首次选择免费，保留全部现有进度'}</div><div class="path-cards">${PATHS.map(p=>`<article class="panel path-card ${p.color} ${state.path===p.id?'chosen':''}"><div class="path-card-heading"><span class="path-seal">${p.mark}</span><div><div class="dialog-eyebrow">${p.id.toUpperCase()}</div><h2>${p.motto}</h2><p>${p.desc}</p></div></div><div class="path-detail"><span>天赋</span><p>${p.passive}</p></div><div class="path-detail"><span>神通</span><p><strong>${p.skill}</strong> · ${p.skillDesc}</p></div><div class="path-detail"><span>法宝</span><p>九境各三十种 · 不限路径，自由炼化与淬炼</p></div><div class="path-bottom"><span>终途 · ${p.ending}</span><button class="btn ${state.path===p.id?'secondary':'outline'}" data-ui="choosePath" data-value="${p.id}"${state.path===p.id?' disabled':''}>${state.path===p.id?'此心已定':state.path?'改修此道':'踏入'+p.name} ${state.path===p.id?'✓':icon('arrow')}</button></div></article>`).join('')}</div><p class="soundless-note">改修保留境界、功法与全部藏品，会保留已炼化的通用法宝，并封存异途功法（重数保留）。路径或装备上限提升后，需静养或服丹恢复；改修与换装不治疗伤势。历练途中不可改修。</p>`;
 }
 function renderBag() {
-  return `${intro('一囊山色，半卷清风','丹药温养身心，灵材汇聚山野。善用随身之物，仙途自有余裕。','YOUR BELONGINGS')}${sectionHeading('bag','随身灵物',`共 ${Object.values(state.items).reduce((a,b)=>a+b,0)} 件物品`)}<div class="item-grid">${ITEMS.map(i=>`<article class="panel item-card"><div class="item-icon ${i.id}">${i.label}</div><h3>${i.name} <small style="color:#9eaa90;font-family:var(--sans)">× ${state.items[i.id]}</small></h3><p>${i.desc}</p><div class="item-details"><span class="tag">${i.kind}</span>${actionButton(i.id === 'herb' ? 'sell' : 'use',i.id === 'herb' ? '售出一株' : '服用一枚',i.id,'outline',state.items[i.id] === 0)}</div></article>`).join('')}</div><div class="panel alchemy-panel"><div><h3>养根灵材</h3><p>灵魄 ${state.roots.essence} · 洗灵露 ${state.roots.dew} · 随仙途自动存档</p></div><button class="btn outline" data-tab="roots">前往灵根养成 ↗</button></div><div class="panel alchemy-panel"><span class="action-icon">${icon('kettle')}</span><div><h3>草木为引，文火成丹</h3><p>凝露草 ×3 ＋ 灵力 10 → 聚气丹 ×1 · 耗时 1 日</p></div>${actionButton('alchemy','开炉炼丹','','secondary',state.items.herb < 3)}</div>`;
+  return `${affixMaterialsMarkup(state)}${intro('一囊山色，半卷清风','丹药温养身心，灵材汇聚山野。善用随身之物，仙途自有余裕。','YOUR BELONGINGS')}${sectionHeading('bag','随身灵物',`共 ${Object.values(state.items).reduce((a,b)=>a+b,0)} 件物品`)}<div class="item-grid">${ITEMS.map(i=>`<article class="panel item-card"><div class="item-icon ${i.id}">${i.label}</div><h3>${i.name} <small style="color:#9eaa90;font-family:var(--sans)">× ${state.items[i.id]}</small></h3><p>${i.desc}</p><div class="item-details"><span class="tag">${i.kind}</span>${actionButton(i.id === 'herb' ? 'sell' : 'use',i.id === 'herb' ? '售出一株' : '服用一枚',i.id,'outline',state.items[i.id] === 0)}</div></article>`).join('')}</div><div class="panel alchemy-panel"><div><h3>养根灵材</h3><p>灵魄 ${state.roots.essence} · 洗灵露 ${state.roots.dew} · 随仙途自动存档</p></div><button class="btn outline" data-tab="roots">前往灵根养成 ↗</button></div><div class="panel alchemy-panel"><span class="action-icon">${icon('kettle')}</span><div><h3>草木为引，文火成丹</h3><p>凝露草 ×3 ＋ 灵力 10 → 聚气丹 ×1 · 耗时 1 日</p></div>${actionButton('alchemy','开炉炼丹','','secondary',state.items.herb < 3)}</div>`;
 }
 function render() {
   const info = navs.find(n => n[0] === tab);
@@ -220,11 +226,14 @@ function showDialog(title: string, body: string, actions = '') {
   $('#dialog-content').innerHTML = `<div class="dialog-header"><h2 id="dialog-title">${title}</h2><button class="dialog-close" data-ui="close" aria-label="关闭">×</button></div><div class="dialog-body">${body}${actions ? `<div class="dialog-actions">${actions}</div>` : ''}</div>`;
   if (!dialog.open) dialog.showModal();
 }
+function showAffixWorkshop(id:string){const item=findSpiritItem(id);if(!item||!ownsSpiritItem(state,item)){toast('请先拥有此灵物，再进行洗练');return;}affixContext=id;const view=affixWorkshop(state,item);showDialog(item.name+' · 词条洗练',view.body,view.actions);}
+function showAffixPreview(){const pending=state.reforge.pending;if(!pending)return;const item=findSpiritItem(pending.itemId);if(!item)return;const view=affixPreview(state,item);showDialog('词条洗练 · 结果对照',view.body,view.actions);}
 function showGuide() {
   const steps = [['壹','吐纳入道','在洞府吐纳或闭关提升修为；灵力不足时听泉静养。所有时间都由你的选择推进。'],['贰','修为圆满，尝试破境','修为满后消耗 20 灵力突破，凝神丹能提高成功率。失败保留八成修为，后续成功率逐次增加 10%。'],['叁','行万里路，求一线缘','进入山河历练，选择奇遇或迎战妖兽。战斗中可以普攻、御剑、防守回灵或遁走；服丹会消耗一回合。'],['肆','灵材炼丹，功法立身','采药与历练获得灵石灵材，在坊市购丹、藏经阁按路径与境界选择功法，每境每途十卷，最多兼修十本，支持封存与转修。行囊中三株凝露草可炼一枚聚气丹。'],['伍','八境问道，渡劫登仙','炼气、筑基、结丹、元婴、化神、炼虚、合体、大乘，每境统一分初期、中期、后期、圆满。大乘圆满后渡飞升天劫，踏入真仙，共需 '+TOTAL_BREAKTHROUGHS+' 次成功破境。']];
   steps.push(['陆','灵器护身，法宝随行','灵装法宝中可装备武器、法衣、佩饰与一件法宝。胜敌必得灵砂，可能掉装备；遗藏可能出法宝。灵砂与灵石可淬炼三次，法宝在战斗中使用，冷却三回合。'],['柒','仙魔妖途，道心自选','三途问道中首次择道免费。仙修擅回元，魔修擅爆发汲血，妖修擅体魄护盾。本命神通每场一次；改修需 100 灵石与一日，法宝保留，异途功法封存。最终结局随路径变化。']);
   steps.push(['捌','各境灵装，道纹相应','每个境界有武器、法衣、佩饰各一件，同境两件激活属性加成，三件再激活路径效果：仙修承受敌方回合后存活可回元，魔修额外汲血，妖修开战获得护盾。道纹和套装随改修转换；装备图鉴可查看三途效果，坊市可按境界选购。']);
   steps.push(['玖','五行养根，凡根成仙','灵根养成中首次测灵免费自选主灵根，五行均可培养；灵魄来自采药、历练或引灵，洗灵露用五株凝露草炼制。洗炼提高纯度，达到境界、纯度与总级要求可晋品。重塑保留级数、纯度与品质；历练中不可养根。']);
+  steps.push(['拾','词纹重铸，择善而留','灵装法宝的已拥有卡片可洗练三条词条，最多锁定两条。生成候选时扣费，可采用新词条或保留原词条，刷新不重抽。洗练石由采药、战斗、奇遇或每枚15灵石购入。仅已装备词条生效，洗练不改淬炼等级。']);
   showDialog('修行指南', `<div class="dialog-eyebrow">A SMALL GUIDE FOR A LONG JOURNEY</div>${steps.map(([n,t,d])=>`<div class="guide-step"><span>${n}</span><div><h3>${t}</h3><p>${d}</p></div></div>`).join('')}<div class="warning-note">每次操作后自动保存在当前浏览器。跨设备游玩请导出存档，再于另一设备导入。无强制等待，无离线惩罚。</div>`, '<button class="btn primary" data-ui="close">心中有道，启程修行</button>');
 }
 function showSettings() {
@@ -273,6 +282,8 @@ document.addEventListener('click', event => {
   if (button.dataset.filter) { filter = button.dataset.filter; renderLogs(); return; }
   if (button.dataset.action) {
     const action = button.dataset.action;
+    const candidateItem=state.reforge.pending?.itemId;
+    const forgeOpen=dialog.open&&affixContext!==null;
     const before=action==='breakthrough'?structuredClone(state):null;
     const result = act(state,action,button.dataset.value);
     if (!result.ok) { toast(result.message); return; }
@@ -284,12 +295,18 @@ document.addEventListener('click', event => {
       return;
     }
     toast(result.message);
+    if(action==='reforgeRoll'){showAffixPreview();return;}
+    if(action==='reforgeLock'){showAffixWorkshop((button.dataset.value||'').split('|')[0]);return;}
+    if((action==='reforgeAccept'||action==='reforgeDiscard')&&candidateItem){showAffixWorkshop(candidateItem);return;}
+    if(action==='buyReforgeStone'&&forgeOpen){showAffixWorkshop(affixContext!);return;}
     if (state.pending) showPending();
     else if (dialog.open && action === 'use' && button.dataset.value === 'focus') showBreakthrough();
     else if (dialog.open) dialog.close();
     return;
   }
   switch (button.dataset.ui) {
+    case 'affix-workshop': showAffixWorkshop(button.dataset.value||'');break;
+    case 'affix-preview': showAffixPreview();break;
     case 'root-awaken': {
       const e=findElement(button.dataset.value||'');if(!e||state.roots.primary)break;
       showDialog('测灵定根 · '+e.name,`<div class="dialog-eyebrow">一念相应 · 五行皆可兼养</div><p>${e.desc}</p><p>免费立${e.name}为主，获得一级培养和 10% 初始纯度。主灵根的五行专属收益按 1.5 倍计算，后续可培养其他五行并付费重塑。</p><div class="warning-note">灵根品质从凡灵根起，依次可晋升真灵根、天灵根、仙灵根。测灵不消耗材料，不改变功法、法宝与修行路径；增加上限不恢复当前气血灵力。</div>`,actionButton('rootAwaken','定下'+e.name,e.id,'primary',!!state.pending));break;
@@ -370,7 +387,7 @@ $<HTMLInputElement>('#import-file').addEventListener('change', async () => {
     if (file.size > 300000) throw new Error('存档文件过大');
     const imported = validateSave(JSON.parse(await file.text()));
     showDialog('续写旧卷', `<p>即将导入道友「${escape(imported.name)}」的仙途：<br>${realmLabel(imported)} · 第 ${imported.day} 日。<br>确认后将覆盖当前进度。</p>`, '<button class="btn outline" data-ui="close">暂不导入</button><button class="btn primary" id="confirm-import">确认导入</button>');
-    $('#confirm-import').onclick = () => { state = imported; save(); dialog.close(); setTab('home'); toast('旧卷重开，仙途已续'); if (state.pending) showPending(); };
+    $('#confirm-import').onclick = () => { state = imported; save(); dialog.close(); setTab('home'); toast('旧卷重开，仙途已续'); if (state.pending) showPending(); else if(state.reforge.pending)showAffixPreview(); };
   } catch (error) { toast(`无法导入：${error instanceof SyntaxError ? '文件不是有效存档' : error instanceof Error ? error.message : '未知存档错误'}`); }
 });
 window.addEventListener('hashchange',()=>{ const hash = location.hash.slice(1); if (navs.some(n=>n[0]===hash)) { tab=hash; render(); } });
@@ -379,3 +396,4 @@ if (navs.some(n=>n[0]===location.hash.slice(1))) tab = location.hash.slice(1);
 render();
 if (loadWarning) toast(loadWarning);
 if (state.pending) showPending();
+else if(state.reforge.pending)showAffixPreview();

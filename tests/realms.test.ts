@@ -36,18 +36,18 @@ test('世界分层正确，终点不再允许突破',()=>{
   const s=createGame();s.realm=8;s.ended=true;assert.equal(nextStep(s),'已渡劫飞升');const before=structuredClone(s);assert.equal(act(s,'breakthrough').ok,false);assert.deepEqual(s,before);
 });
 test('v2 炼气初中后保持对应阶段和修为比例',()=>{
-  for(let stage=0;stage<3;stage++){const old=oldSave(0,stage),snapshot=structuredClone(old),s=validateSave(old);assert.equal(s.version,7);assert.equal(s.stage,stage);assert.equal(s.realm,0);assert.equal(s.xp,Math.round(attributes(s).xpNeed*.5));assert.equal(s.hp,80);assert.equal(s.energy,40);assert.equal(s.stones,321);assert.equal(s.dust,17);assert.deepEqual(s.gear,old.gear);assert.deepEqual(old,snapshot);assert.deepEqual(validateSave(s),s);}
+  for(let stage=0;stage<3;stage++){const old=oldSave(0,stage),snapshot=structuredClone(old),s=validateSave(old);assert.equal(s.version,8);assert.equal(s.stage,stage);assert.equal(s.realm,0);assert.equal(s.xp,Math.round(attributes(s).xpNeed*.5));assert.equal(s.hp,80);assert.equal(s.energy,40);assert.equal(s.stones,321);assert.equal(s.dust,17);assert.deepEqual(s.gear,old.gear);assert.deepEqual(old,snapshot);assert.deepEqual(validateSave(s),s);}
 });
 test('v3 炼气十三层转换四阶段，保留修为比例且不治疗伤势',()=>{
   for(let layer=0;layer<13;layer++){
     const old=createGame();old.version=3;old.stage=layer;old.xp=Math.round((100+layer*10)*.5);old.hp=100;old.energy=60;
-    const s=validateSave(old);assert.equal(s.version,7);assert.equal(s.stage,layer<4?0:layer<7?1:layer<10?2:3);assert.equal(s.xp,Math.round(attributes(s).xpNeed*.5));assert.equal(s.hp,100);assert.equal(s.energy,60);assert.deepEqual(validateSave(s),s);
+    const s=validateSave(old);assert.equal(s.version,8);assert.equal(s.stage,layer<4?0:layer<7?1:layer<10?2:3);assert.equal(s.xp,Math.round(attributes(s).xpNeed*.5));assert.equal(s.hp,100);assert.equal(s.energy,60);assert.deepEqual(validateSave(s),s);
   }
   const old=createGame();old.version=3;old.stage=3;old.hp=112;
   const s=validateSave(old);assert.equal(s.hp,attributes(s).maxHp);assert.equal(s.stage,0);
 });
 test('v3 的炼气以外境界仅更新版本及圆满称呼，通关状态不变',()=>{
-  for(const realm of [1,4,7,8]){const old=createGame();old.version=3;old.realm=realm;old.stage=realm===8?0:3;old.ended=realm===8;const s=validateSave(old);assert.equal(s.realm,old.realm);assert.equal(s.stage,old.stage);assert.equal(s.ended,old.ended);assert.equal(s.version,7);}
+  for(const realm of [1,4,7,8]){const old=createGame();old.version=3;old.realm=realm;old.stage=realm===8?0:3;old.ended=realm===8;const s=validateSave(old);assert.equal(s.realm,old.realm);assert.equal(s.stage,old.stage);assert.equal(s.ended,old.ended);assert.equal(s.version,8);}
 });
 test('旧金丹改名结丹，原渡劫映射大乘，通关映射真仙且不清空物品',()=>{
   const dan=validateSave(oldSave(2,1));assert.equal(realmLabel(dan),'结丹 · 中期');

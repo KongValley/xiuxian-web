@@ -8,6 +8,9 @@ export interface SpiritRoots {
   primary:ElementId|null; levels:Record<ElementId,number>; purity:number; tier:number; essence:number; dew:number;
 }
 export interface RootEffects extends Bonus {cultivation:number;chance:number;skill:number;heal:number;energyRegen:number;shield:number}
+export type AffixStat=Stat|'cultivation'|'chance';
+export interface Affix {stat:AffixStat;grade:number;value:number}
+export interface ReforgeState {shards:number;records:Record<string,Affix[]>;locks:Record<string,number[]>;pending:{itemId:string;lines:Affix[]}|null}
 export interface ManualEffects extends Bonus {
   cultivation:number; chance:number; drain:number; heal:number; energyRegen:number; shield:number; skill:number;
 }
@@ -48,6 +51,7 @@ export interface GameState extends RealmPosition {
   version: number; name: string; day: number; xp: number; hp: number; energy: number; stones: number;
   path: PathId | null; gear: Record<string, number>; artifacts: Record<string, number>;
   roots:SpiritRoots;
+  reforge:ReforgeState;
   equipped: Record<string, string | null>; dust: number; books: Record<string, number>; activeBooks:string[];
   items: Record<string, number>; focus: boolean; pity: number; stats: Record<string, number>;
   claimed: string[]; pending: Combat | Encounter | null; ended: boolean; logs: LogEntry[];
